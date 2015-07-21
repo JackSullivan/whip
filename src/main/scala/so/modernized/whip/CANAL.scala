@@ -1,10 +1,7 @@
 package so.modernized.whip
 
-import cc.factorie.app.nlp.hcoref.{Mention, NodeVariables}
 import cc.factorie.util.Attr
-import cc.factorie.variable.{SetVariable, Var, DiffList}
 import org.apache.spark.graphx.Graph
-import scala.StringBuilder
 import scala.collection.mutable
 import scala.reflect.ClassTag
 
@@ -12,6 +9,7 @@ import scala.reflect.ClassTag
 /**
  * Created by johnsullivan on 7/20/15.
  */
+/*
 trait CANAL {
 
   def simLink(v1s:Iterable[Vertex], v2s:Iterable[Vertex]):Double
@@ -33,6 +31,7 @@ trait CANAL {
     }
   }
 }
+*/
 
 
 
@@ -48,6 +47,17 @@ trait Graph {
   def vertices:Iterable[Vertex]
 
 }
+/*
+sealed trait DendrogramNode[A] {
+  def members:Iterable[A]
+}
+case class DendrogramLeaf[A](a:A) extends DendrogramNode[A] {
+  val members = Some(a)
+}
+case class DendrogramInternalNode[A] extends DendrogramNode[A] {
+
+}
+*/
 
 class Dendrogram[A](private val nodes:Array[A]) {
 
@@ -63,6 +73,13 @@ class Dendrogram[A](private val nodes:Array[A]) {
   }
 
   def links:Iterable[(Int, Int, Double)] = merges
+
+  def children(parent:Int):Set[A] = if(parent < nodes.length) {
+    Set(nodes(parent))
+  } else {
+    val (c1, c2, _) = merges(parent - nodes.length)
+    children(c1) ++ children(c2)
+  }
 
   def groupings(numGroups:Int = 1):Iterable[Set[A]] = {
     val usableLinks = merges.sortBy(-_._3).drop(numGroups - 1).toSet
@@ -101,51 +118,18 @@ class Dendrogram[A](private val nodes:Array[A]) {
   }
 }
 
+object Dendrogram {
+  def main(args:Array[String]): Unit = {
+    val dend = new Dendrogram(Array("a", "b", "c", "d", "e", "f"))
 
-/*
-class Dendrogram[NodeType](leaves:Iterable[NodeType]) {
+    dend.merge(0,1,0.1)
+    dend.merge(2,3,0.3)
+    dend.merge(7,4,0.6)
+    dend.merge(6,5,0.7)
+    dend.merge(9,8,0.8)
 
-  class DendrogramVariables(val nodes:SetVariable[NodeType]) extends NodeVariables[DendrogramVariables]{
-    def this(node:NodeType) = this{val s = new SetVariable[NodeType]; s.add(node)(null); s}
-
-    override def getVariables: Seq[Var] = Seq(nodes)
-
-    override def ++(other: DendrogramVariables)(implicit d: DiffList): DendrogramVariables = new DendrogramVariables(this.nodes ++ other.nodes)
-    override def --(other: DendrogramVariables)(implicit d: DiffList): DendrogramVariables = new DendrogramVariables(this.nodes -- other.nodes)
-
-    override def ++=(other: DendrogramVariables)(implicit d: DiffList) {this.nodes addAll other.nodes.value}
-    override def --=(other: DendrogramVariables)(implicit d: DiffList) {this.nodes removeAll other.nodes.value}
+    //println(dend.toDotString)
+    println(dend.groupings(3))
+    //println(dend.children(8))
   }
-
-  val mentMap = leaves.map(l => l -> new Mention(new DendrogramVariables(l))).toMap
-
 }
-*/
-
-/*
-class Dendrogram[NodeType](leaves:Iterable[NodeType]) {
-  private case class NodeContainer(node:Option[NodeType], joinScore:Double, parentIndex:Int) {
-    def updateParent(newParentIndex:Int) = NodeContainer(node, joinScore, newParentIndex)
-  }
-
-  // we should store for each node its value (NodeType) its merge score (0.0 for leaves), and its parent (-1 for the root)
-  private val nodes = new Array[(Set[NodeType], Double, Int)]((leaves.size*2)-2)
-  private val nodeMap = leaves.zipWithIndex.map { case (nt, idx) => nodes(idx) = (Set(nt), 0.0, -1); nt -> idx}.toMap
-  private var nextId = leaves.size
-  private def getId:Int = {
-    val res = nextId
-    nextId += 1
-    res
-  }
-
-  def merge(n1:NodeType, n2:NodeType, score:Double): Unit = {
-    val parentId = getId
-    NodeContainer(None, score, -1)
-    val n1Idx = nodeMap(n1)
-    val n2Idx = nodeMap(n2)
-
-  }
-
-
-}
-*/
