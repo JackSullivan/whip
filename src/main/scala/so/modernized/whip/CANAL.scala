@@ -34,6 +34,11 @@ trait CANAL {
   }
 
   private case class IndexedVertexSet(vs:Set[Vertex], i:Int)
+  def run2[C <: Ordered[C] : ClassTag](g:Graph, numCats:Int, getOrdered:(Vertex => C)): Set[Set[Vertex]] = {
+    val orderedVerts = g.vertices.groupBy(getOrdered).mapValues(_.toSet).toSeq.sortBy(_._1).map(_._2)
+    val vertPairs = orderedVerts.sliding(2)
+    val dend = new Dendrogram(orderedVerts.toArray)
+  }
 
   def run[C <: Ordered[C] : ClassTag](g:Graph, numCats:Int, getOrdered:(Vertex => C)): Set[Set[Vertex]] = {
     val vertices = g.vertices.toArray
@@ -87,64 +92,49 @@ trait Graph {
   def vertices:Iterable[Vertex]
 
 }
-/*
-sealed trait DendrogramNode[A] {
-  def members:Iterable[A]
-}
-case class DendrogramLeaf[A](a:A) extends DendrogramNode[A] {
-  val members = Some(a)
-}
-case class DendrogramInternalNode[A] extends DendrogramNode[A] {
 
-}
-*/
+class Dendrogram[A](nodes:Array[Set[A]]) {
 
-class Dendrogram[A](private val nodes:Array[A]) {
+  def this(ns:Array[A]) = this(ns map (Set(_)))
 
   private val numNodes = (nodes.length * 2) - 1
+  private val allNodes = new Array[(Set[A], Double)](numNodes)
+  private val nodeIdxMap = new mutable.HashMap[Set[A], Int]()
+  nodes.zipWithIndex foreach {case (n, i) => allNodes(i) = n -> 0.0; nodeIdxMap(n) = i}
   private val merges = new Array[(Int, Int, Double)](nodes.length - 1)
   private var currentIdx = nodes.length
 
-  def merge(n1:Int, n2:Int, distance:Double):Int = {
+  def merge(n1:Set[A], n2:Set[A], distance:Double):Set[A]= {
+    val parentId = currentIdx
+    currentIdx += 1
+    merges(parentId - nodes.length) = (nodeIdxMap(n1), nodeIdxMap(n2), distance)
+    val parentSet = n1 ++ n2
+    nodeIdxMap(parentSet) = parentId
+    allNodes(parentId) = parentSet -> distance
+    parentSet
+  }
+
+  def mergeId(n1:Int, n2:Int, distance:Double):Int = {
     val parentId = currentIdx
     currentIdx += 1
     merges(parentId - nodes.length) = (n1, n2, distance)
+    val parentSet = allNodes(n1)._1 ++ allNodes(n2)._1
+    nodeIdxMap(parentSet) = parentId
+    allNodes(parentId) = parentSet -> distance
     parentId
   }
 
-  def links:Iterable[(Int, Int, Double)] = merges
+  @inline
+  def children(parent:Int):Set[A] = allNodes(parent)._1
 
-  // todo make faster/memoize
-  def children(parent:Int):Set[A] = if(parent < nodes.length) {
-    Set(nodes(parent))
-  } else {
-    val (c1, c2, _) = merges(parent - nodes.length)
-    children(c1) ++ children(c2)
-  }
+  @inline
+  def index(a:Set[A]):Int = nodeIdxMap(a)
 
-  def groupings(numGroups:Int = 1):Iterable[Set[A]] = {
-    val usableLinks = merges.sortBy(-_._3).drop(numGroups - 1).toSet
-    val clusters = new Array[Set[A]](numNodes) // immutable set for structure sharing in the buildup
-    nodes.indices foreach {idx => clusters(idx) = Set(nodes(idx))}
-    (nodes.length until numNodes) foreach {idx => clusters(idx) = Set.empty[A]}
-    @inline
-    def updateChild(child:Int, parent:Int): Unit = {
-      clusters(parent) = clusters(parent) ++ clusters(child)
-      clusters(child) = Set.empty[A]
-    }
-
-    merges.zipWithIndex.collect { case (t@ (child1, child2, _), idx) if usableLinks.contains(t) => // we only take cluster paths that
-      val parent = idx + nodes.length
-        updateChild(child1, parent)
-        updateChild(child2, parent)
-    }
-    clusters.filter(_.nonEmpty)
-  }
-
-  def toDotString:String = {
+  def toDotString(composeString:Set[A] => String = _.mkString(", ")):String = {
     val sb = new StringBuilder("digraph Dendrogram {\n")
     val edgeString = "\ti%s -> i%s [label=\"%.2f\"];\n"
     val leafString = "\ti%s [label=\"%s\"];\n"
+
     merges.zipWithIndex foreach { case t@((c1, c2, score), idx) =>
       val parent = idx + nodes.length
       sb append edgeString.format(c1, parent, score)
@@ -152,7 +142,7 @@ class Dendrogram[A](private val nodes:Array[A]) {
     }
     sb.append("\n")
     nodes.zipWithIndex foreach { case (elem, idx) =>
-        sb append leafString.format(idx, elem.toString)
+        sb append leafString.format(idx, composeString(elem))
     }
     sb.append("}")
     sb.toString()
@@ -163,11 +153,11 @@ object Dendrogram {
   def main(args:Array[String]): Unit = {
     val dend = new Dendrogram(Array("a", "b", "c", "d", "e", "f"))
 
-    dend.merge(0,1,0.1)
-    dend.merge(2,3,0.3)
-    dend.merge(7,4,0.6)
-    dend.merge(6,5,0.7)
-    dend.merge(9,8,0.8)
+    dend.mergeId(0,1,0.1)
+    dend.mergeId(2,3,0.3)
+    dend.mergeId(7,4,0.6)
+    dend.mergeId(6,5,0.7)
+    dend.mergeId(9,8,0.8)
 
     //println(dend.toDotString)
     println(dend.groupings(3))
