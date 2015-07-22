@@ -7,18 +7,57 @@ import scala.reflect.ClassTag
 
 
 /**
- * Created by johnsullivan on 7/20/15.
+ * Sorts pairs that represent non-overlapping spans of orderd elements
+ * @tparam C
  */
-/*
+class SpanOrdering[C <: Ordered[C]] extends Ordering[(C,C)] {
+  override def compare(x: (C, C), y: (C, C)): Int = if(x._2 < y._1) {
+    -1
+  } else if(y._2 < x._1) {
+    1
+  } else { // this should be better
+    0
+  }
+}
+
 trait CANAL {
 
   def simLink(v1s:Iterable[Vertex], v2s:Iterable[Vertex]):Double
   def deltaMeasure(grouping:Iterable[Set[Vertex]]):Double
   def mu(d:Double, dm1:Double) = (d - dm1)/dm1
 
-  def run[C <: Ordering : ClassTag](g:Graph, numCats:Int): Set[Set[Vertex]] = {
-    var currentGrouping = g.vertices.groupBy(_.attr[C]).mapValues(_.toSet).toSeq.sortBy(_._1).map(_._2)
-    val pairHeap = currentGrouping.sliding(2).map{case Vector(v1, v2) => (v1, v2, simLink(v1,v2))}.toSeq.sortBy(_._3)
+  class SimlinkOrdering(simFn:((Iterable[Vertex], Iterable[Vertex]) => Double)) extends Ordering[(IndexedVertexSet, IndexedVertexSet)] {
+
+    override def compare(x: (IndexedVertexSet, IndexedVertexSet), y: (IndexedVertexSet, IndexedVertexSet)): Int = (simFn(x._1.vs, x._2.vs) compare simFn(y._1.vs, y._2.vs)) * -1
+
+    //override def compare(x: (Set[Vertex], Set[Vertex]), y: (Set[Vertex], Set[Vertex])): Int = (simFn.tupled(x) compare simFn.tupled(y)) * -1 // since link is a distance
+  }
+
+  private case class IndexedVertexSet(vs:Set[Vertex], i:Int)
+
+  def run[C <: Ordered[C] : ClassTag](g:Graph, numCats:Int, getOrdered:(Vertex => C)): Set[Set[Vertex]] = {
+    val vertices = g.vertices.toArray
+    val dend = new Dendrogram(vertices)
+    var currentGroups = vertices.zipWithIndex.groupBy{case (v, _) => getOrdered(v)}.mapValues { verts =>
+      verts.map(_._2).reduceLeft{case (x,y) => dend.merge(x,y,0.0)}
+    }.toSeq.sortBy(_._1).map(_._2).map(i => IndexedVertexSet(dend.children(i), i)) // these groups are adjacent and should stay that way
+    val pairHeap = new mutable.PriorityQueue[(IndexedVertexSet, IndexedVertexSet)]()(new SimlinkOrdering(simLink))
+    pairHeap ++= currentGroups.sliding(2).map{case Vector(v1, v2) => v1 -> v2}
+
+    var deltaPMinus1:Double = null
+    var deltaP = deltaMeasure(currentGroups.map(_.vs))
+
+    while (currentGroups.size > 1) {
+      val (idx1, idx2) = pairHeap.dequeue()
+      pairHeap.
+      currentGroups = currentGroups.filterNot(i => i == idx1 || i == idx2)
+      deltaPMinus1 = deltaP
+      deltaP = deltaMeasure(currentGroups.map(_.vs) :+ dend.children(idx1) ++ dend.children(idx2))
+      currentGroups = currentGroups :+ dend.merge(idx1, idx2, mu(deltaP, deltaPMinus1))
+    }
+
+    //var currentGrouping = g.vertices.groupBy(_.attr[C]).mapValues(_.toSet).toSeq.sortBy(_._1).map(_._2)
+    /*
     var deltaPMinus1:Double = null
     var deltaP = deltaMeasure(currentGrouping)
     val merges = mutable.ArrayBuffer[(Set[Vertex], Set[Vertex], Double)]()
@@ -29,9 +68,10 @@ trait CANAL {
       deltaP = deltaMeasure(currentGrouping)
       merges.+=((v1s, v2s, mu(deltaP, deltaPMinus1)))
     }
+    */
   }
 }
-*/
+
 
 
 
@@ -74,6 +114,7 @@ class Dendrogram[A](private val nodes:Array[A]) {
 
   def links:Iterable[(Int, Int, Double)] = merges
 
+  // todo make faster/memoize
   def children(parent:Int):Set[A] = if(parent < nodes.length) {
     Set(nodes(parent))
   } else {
