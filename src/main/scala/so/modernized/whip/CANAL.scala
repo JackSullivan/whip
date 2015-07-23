@@ -1,52 +1,28 @@
 package so.modernized.whip
 
-import cc.factorie.util.Attr
-import org.apache.spark.graphx.Graph
 import scala.collection.mutable
 import scala.reflect.ClassTag
 
-class OrderableRangeSet[A, C <% Ordered[C]](as:Iterable[A])(getOrdering:A => C) extends Set[A] with Ordered[OrderableRangeSet[A,C]] {
-
-  private var (s, start, end) = as match {
-    case set:Set[A] =>
-      val sq = set.toSeq.map(getOrdering).sorted
-      (set, sq.head, sq.last)
-    case sq:Seq[A] =>
-      val set = sq.toSet
-      val oSeq = sq.map(getOrdering).sorted
-      (set, oSeq.head, oSeq.last)
+class RangeSeqOrdering[A,C <% Ordered[C]](getOrdered:A => C) extends Ordering[Seq[A]] {
+  private def getBounds(s:Set[A]) = {
+    val sq = s.toSeq.map(getOrdered).sorted
+    sq.head -> sq.last
   }
-
-  override def compare(that: OrderableRangeSet[A, C]): Int = if(this.end < that.start) {
-    -1
-  } else if (this.start > that.end) {
-    1
-  } else if ((this.start.compare(that.start) == 0) && (this.end.compare(that.end) == 0)) {
-    0
-  } else {
-    throw new IllegalArgumentException("Orderable Range Sets must not overlap")
-  }
-
-  private def updateExtrema(newElem:A): Unit = {
-    getOrdering(newElem) match {
-      case newStart if newStart < start => start = newStart
-      case newEnd if newEnd > end => end = newEnd
-      case otw => ()
+  override def compare(x: Seq[A], y: Seq[A]) = {
+    val xStart = getOrdered(x.head)
+    val xEnd = getOrdered(x.last)
+    val yStart = getOrdered(y.head)
+    val yEnd = getOrdered(y.last)
+    if(xEnd < yStart) {
+      -1
+    } else if (yEnd < xStart) {
+      1
+    } else if (xStart.compare(yStart) == 0 && xEnd.compare(yEnd) == 0) {
+      0
+    } else {
+      throw new IllegalArgumentException("Orderable Range Seqs must not overlap")
     }
   }
-
-  override def +(elem: A): Set[A] = {
-    updateExtrema(elem)
-    s + elem
-  }
-  def ++(elems:OrderableRangeSet[A,C]) = new OrderableRangeSet[A,C](s ++ elems.s)(getOrdering)
-
-  override def contains(elem: A): Boolean = s contains elem
-  override def -(elem: A): Set[A] = {
-    updateExtrema(elem)
-    s - elem
-  }
-  override def iterator: Iterator[A] = s.iterator
 }
 
 /**
@@ -60,62 +36,34 @@ trait CANAL {
 
   // when implemented, this should be memoized for speed
   def simLink(v1s:Iterable[Vertex], v2s:Iterable[Vertex]):Double
-  def deltaMeasure(grouping:Iterable[Set[Vertex]]):Double
+  def deltaMeasure(grouping:Iterable[Seq[Vertex]]):Double
   def mu(d:Double, dm1:Double) = (d - dm1)/dm1
 
   def run2[C <% Ordered[C] : ClassTag](g:Graph, numCats:Int, getOrdered:(Vertex => C)): Set[Set[Vertex]] = {
-    var currentGrouping = g.vertices.groupBy(getOrdered).values.toSeq.map(vs => new OrderableRangeSet[Vertex, C](vs.toSeq)(getOrdered)).sorted
-    val simlinkOrderedvertPairs = currentGrouping.sliding(2).map{case Seq(v1, v2) => v1 -> v2}.toSeq.sorted(new PairDistanceOrdering(simLink).reverse)
+    val simlinkAsc = new PairDistanceOrdering(simLink).reverse
+    def updateSimlinkPairs(grouping:Seq[Seq[Vertex]]) = grouping.sliding(2).map{case Seq(v1, v2) => v1 -> v2}.toSeq.sorted(simlinkAsc)
+
+
+    var currentGrouping = g.vertices.groupBy(getOrdered).values.toSeq.map(_.toSeq).sorted(new RangeSeqOrdering(getOrdered))
+    var remainingPairs = updateSimlinkPairs(currentGrouping)
 
     var deltaPminusOne = null.asInstanceOf[Double]
     var deltaP = deltaMeasure(currentGrouping)
 
-    currentGrouping = new mutable.HashSet[Orde]
-    val dend = new Dendrogram[Vertex, OrderableRangeSet[Vertex, C]](currentGrouping.toArray)
-    var remainingPairs = simlinkOrderedvertPairs
+    val dend = new Dendrogram(currentGrouping.toArray)
     while(remainingPairs.nonEmpty) {
-      val (v1, v2) = remainingPairs.head
+      val (m1, m2) = remainingPairs.head
+      currentGrouping = currentGrouping.sliding(2).collect {
+        case Vector(v1, v2) if v1 != m1 && v1 != m2 => v1
+        case Vector(v1, v2) if v1 == m1 => m1 ++ m2
+      }.toSeq
+      remainingPairs = updateSimlinkPairs(currentGrouping)
+
       deltaPminusOne = deltaP
-      deltaP =
-
-      dend.merge(v1, v2, mu(deltaP))
-    }
-  }
-
-  def run[C <: Ordered[C] : ClassTag](g:Graph, numCats:Int, getOrdered:(Vertex => C)): Set[Set[Vertex]] = {
-    val vertices = g.vertices.toArray
-    val dend = new Dendrogram(vertices)
-    var currentGroups = vertices.zipWithIndex.groupBy{case (v, _) => getOrdered(v)}.mapValues { verts =>
-      verts.map(_._2).reduceLeft{case (x,y) => dend.merge(x,y,0.0)}
-    }.toSeq.sortBy(_._1).map(_._2).map(i => IndexedVertexSet(dend.children(i), i)) // these groups are adjacent and should stay that way
-    val pairHeap = new mutable.PriorityQueue[(IndexedVertexSet, IndexedVertexSet)]()(new SimlinkOrdering(simLink))
-    pairHeap ++= currentGroups.sliding(2).map{case Vector(v1, v2) => v1 -> v2}
-
-    var deltaPMinus1:Double = null
-    var deltaP = deltaMeasure(currentGroups.map(_.vs))
-
-    while (currentGroups.size > 1) {
-      val (idx1, idx2) = pairHeap.dequeue()
-      pairHeap.
-      currentGroups = currentGroups.filterNot(i => i == idx1 || i == idx2)
-      deltaPMinus1 = deltaP
-      deltaP = deltaMeasure(currentGroups.map(_.vs) :+ dend.children(idx1) ++ dend.children(idx2))
-      currentGroups = currentGroups :+ dend.merge(idx1, idx2, mu(deltaP, deltaPMinus1))
-    }
-
-    //var currentGrouping = g.vertices.groupBy(_.attr[C]).mapValues(_.toSet).toSeq.sortBy(_._1).map(_._2)
-    /*
-    var deltaPMinus1:Double = null
-    var deltaP = deltaMeasure(currentGrouping)
-    val merges = mutable.ArrayBuffer[(Set[Vertex], Set[Vertex], Double)]()
-
-    for((v1s, v2s, _) <- pairHeap) {
-      currentGrouping = currentGrouping.collect {case vs if vs != v1s && vs != v2s => vs} :+ (v1s ++ v2s)
-      deltaPMinus1 = deltaP
       deltaP = deltaMeasure(currentGrouping)
-      merges.+=((v1s, v2s, mu(deltaP, deltaPMinus1)))
+
+      dend.merge(m1, m2, mu(deltaP, deltaPminusOne))
     }
-    */
   }
 }
 
@@ -123,7 +71,7 @@ trait Edge {
   def to:Vertex
   def from:Vertex
 }
-trait Vertex extends Attr {
+trait Vertex {
   def edges:Iterable[Edge]
 }
 trait Graph {
@@ -132,20 +80,23 @@ trait Graph {
 
 }
 
-class Dendrogram[A, SetType <: Set[A]](nodes:Array[SetType]) {
+class Dendrogram[A](nodes:Array[Seq[A]]) {
 
   private val numNodes = (nodes.length * 2) - 1
-  private val allNodes = new Array[(SetType, Double)](numNodes)
-  private val nodeIdxMap = new mutable.HashMap[SetType, Int]()
+  private val allNodes = new Array[(Seq[A], Double)](numNodes)
+  private val nodeIdxMap = new mutable.HashMap[Seq[A], Int]()
   nodes.zipWithIndex foreach {case (n, i) => allNodes(i) = n -> 0.0; nodeIdxMap(n) = i}
   private val merges = new Array[(Int, Int, Double)](nodes.length - 1)
   private var currentIdx = nodes.length
 
-  def merge(n1:SetType, n2:SetType, distance:Double):SetType= {
+  def nextId = currentIdx
+
+  // n1 is assumed to be before n1
+  def merge(n1:Seq[A], n2:Seq[A], distance:Double):Seq[A]= {
     val parentId = currentIdx
     currentIdx += 1
     merges(parentId - nodes.length) = (nodeIdxMap(n1), nodeIdxMap(n2), distance)
-    val parentSet = (n1 ++ n2).asInstanceOf[SetType]
+    val parentSet = n1 ++ n2
     nodeIdxMap(parentSet) = parentId
     allNodes(parentId) = parentSet -> distance
     parentSet
@@ -155,17 +106,17 @@ class Dendrogram[A, SetType <: Set[A]](nodes:Array[SetType]) {
     val parentId = currentIdx
     currentIdx += 1
     merges(parentId - nodes.length) = (n1, n2, distance)
-    val parentSet = (allNodes(n1)._1 ++ allNodes(n2)._1).asInstanceOf[SetType]
+    val parentSet = allNodes(n1)._1 ++ allNodes(n2)._1
     nodeIdxMap(parentSet) = parentId
     allNodes(parentId) = parentSet -> distance
     parentId
   }
 
   @inline
-  def children(parent:Int):SetType = allNodes(parent)._1
+  def children(parent:Int):Seq[A] = allNodes(parent)._1
 
   @inline
-  def index(a:SetType):Int = nodeIdxMap(a)
+  def index(a:Seq[A]):Int = nodeIdxMap(a)
 
   def toDotString(composeString:Set[A] => String = _.mkString(", ")):String = {
     val sb = new StringBuilder("digraph Dendrogram {\n")
