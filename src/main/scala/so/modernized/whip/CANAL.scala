@@ -4,8 +4,6 @@ import cc.factorie.util.Hooks3
 
 import scala.collection.mutable
 import scala.io.Source
-import scala.reflect.ClassTag
-
 
 class IndexedVertexSeq(val value:Seq[Vertex], val idx:Int) extends (Seq[Vertex], Int)(value, idx) {
   override def hashCode = idx
@@ -22,13 +20,14 @@ class IndexedVertexSeq(val value:Seq[Vertex], val idx:Int) extends (Seq[Vertex],
 trait StandardMemoizedSimlink {
   this: CANAL =>
 
-  private val participationMemo = mutable.HashMap.empty[(IndexedVertexSeq, IndexedVertexSeq), mutable.HashMap[EdgeType, Int]].withDefault(_ => mutable.HashMap.empty)
-  private val partMemoRef = mutable.HashMap.empty[IndexedVertexSeq, mutable.HashSet[(IndexedVertexSeq, IndexedVertexSeq)]].withDefault(_ => mutable.HashSet.empty)
+  private val participationMemo = mutable.AnyRefMap.empty[(IndexedVertexSeq, IndexedVertexSeq), mutable.AnyRefMap[EdgeType, Int]].withDefault(_ => mutable.AnyRefMap.empty)
+  private val partMemoRef = mutable.AnyRefMap.empty[IndexedVertexSeq, mutable.HashSet[(IndexedVertexSeq, IndexedVertexSeq)]].withDefault(_ => mutable.HashSet.empty)
 
   private def participation(xs:IndexedVertexSeq, ys:IndexedVertexSeq, tpy:EdgeType) = {
     val args = xs -> ys
     partMemoRef(xs) = partMemoRef(xs) += args
     partMemoRef(ys) = partMemoRef(ys) += args
+
     participationMemo(args).getOrElseUpdate(tpy, xs.valueSet.count { x =>
       x.edges(tpy).exists{ e =>
         ys.valueSet.contains(e.to)
@@ -63,11 +62,13 @@ trait StandardMemoizedSimlink {
     }.sum
 
   def simLink(i:IndexedVertexSeq, j:IndexedVertexSeq, grouping:Seq[IndexedVertexSeq], edgeTypes:Iterable[EdgeType]) = {
-    edgeTypes.flatMap{ eType =>
+    val res = edgeTypes.flatMap{ eType =>
       grouping.collect { case k if k != i && k != j =>
         math.abs(participationRatio(i,k, eType) - participationRatio(j, k, eType))
       }
     }.sum
+    //println("simLink between %d and %d is %.4f".format(i.idx, j.idx, res))
+    res
   }
 }
 
@@ -81,14 +82,21 @@ trait CANAL {
   val mergeHooks = new Hooks3[IndexedVertexSeq, IndexedVertexSeq, IndexedVertexSeq]
 
   def run[C](g:Graph, numCats:Int, getOrdered:(Vertex => C))(implicit toOrdered:Ordering[C]) = {
-    def updateSimlinkPairs(grouping:Seq[IndexedVertexSeq]) = grouping.sliding(2).collect{ case Seq(pair1, pair2) => pair1 -> pair2 }.toSeq.sortBy { case (v1, v2) => simLink(v1, v2, grouping, g.edgeTypes) }
+    println("running CANAL")
+    def updateSimlinkPairs(grouping:Seq[IndexedVertexSeq]) =
+      grouping.sliding(2).collect{ case Seq(pair1, pair2) => pair1 -> pair2 }.toSeq.sortBy{ case (v1, v2) => simLink(v1, v2, grouping, g.edgeTypes)}
+
+      //.toSeq.sortBy { case (v1, v2) => simLink(v1, v2, grouping, g.edgeTypes) }
 
     var currentGrouping = g.vertices.groupBy(getOrdered).toSeq.sortBy(_._1).zipWithIndex.map { case ((_, vs),idx) => new IndexedVertexSeq(vs.toSeq, idx) }
+    println("found %d initial groups".format(currentGrouping.size))
 
     var remainingPairs = updateSimlinkPairs(currentGrouping)
+    println("calculated simlinks, for " + remainingPairs.size + " pairs")
 
     var deltaPminusOne = null.asInstanceOf[Int]
     var deltaP = deltaMeasure(currentGrouping, g.edgeTypes)
+    println("deltaP:" + deltaP)
 
     val numLeaves = currentGrouping.length
     var currentIdx = numLeaves
@@ -96,12 +104,15 @@ trait CANAL {
     val mergeHeap = new mutable.PriorityQueue[(Int, Int, Double)]()(Ordering.by({tup:(Int, Int, Double) => tup._3}))
     val subclusters = new Array[IndexedVertexSeq]((numLeaves * 2) - 1)
     currentGrouping foreach {iv => subclusters(iv.idx) = iv}
+    println("entering while")
 
     while(remainingPairs.nonEmpty) {
       val (m1, m2) = remainingPairs.head
+      println("merging cluster %d of size %d and cluster %d of size %d".format(m1.idx, m1.value.size, m2.idx, m2.value.size))
+      println("before reshuffle had %d groupings".format(currentGrouping.size))
       currentGrouping = currentGrouping.sliding(2).collect {
-        case Vector(v1, v2) if v1 != m1 && v1 != m2 => v1
-        case Vector(v1, v2) if v1 == m1 =>
+        case Seq(v1, v2) if v1 != m1 && v1 != m2 => v1
+        case Seq(v1, v2) if v1 == m1 =>
           val parentIdx = currentIdx
           currentIdx += 1
           val newCluster = m1 ++ (m2, parentIdx)
@@ -109,17 +120,25 @@ trait CANAL {
           subclusters(parentIdx) = newCluster
           newCluster
       }.toSeq
+      println("after reshuffle had %d groupings".format(currentGrouping.size))
+
+      println("before recalc had %d remaining pairs".format(remainingPairs.size))
       remainingPairs = updateSimlinkPairs(currentGrouping)
+      println("after recalc had %d remaining pairs".format(remainingPairs.size))
 
       deltaPminusOne = deltaP
       deltaP = deltaMeasure(currentGrouping, g.edgeTypes)
+      println("deltaP: %d deltaP - 1: %d".format(deltaP, deltaPminusOne))
 
       mergeHeap.enqueue((m1.idx, m2.idx, mu(deltaP, deltaPminusOne)))
     }
 
+    mergeHeap foreach println
     val cutoffs = (0 until numCats).map { _ =>
       val (v1, _, _) = mergeHeap.dequeue()
-      getOrdered(subclusters(v1).value.last)
+      val cutoff = getOrdered(subclusters(v1).value.last)
+      println("found cutoff at" + cutoff)
+      cutoff
     }
     cutoffs
   }
@@ -139,9 +158,9 @@ trait Graph {
 }
 
 case class Flight(id:Int, arrivalDelay:Int, toS:String, fromS:String, planeS:String) {
-  Flight.toFlights(toS) append this
-  Flight.fromFlights(fromS) append this
-  Flight.planeFlights(planeS) append this
+  Flight.toFlights(toS) = Flight.toFlights(toS).+=(this)
+  Flight.fromFlights(fromS) = Flight.fromFlights(fromS).+=(this)
+  Flight.planeFlights(planeS) = Flight.planeFlights(planeS).+=(this)
 
   lazy val to = Flight.toFlights(toS).toSet - this
   lazy val from = Flight.fromFlights(fromS).toSet - this
@@ -169,24 +188,36 @@ class FlightVertex(val f:Flight) extends Vertex{
   def edges = _edges.toMap
 }
 
-class FlightGraph(flights:Iterable[Flight]) extends Graph {
-  private val fToV = flights.map{f => f -> new FlightVertex(f)}.toMap
+class FlightGraph(flights:Array[Flight]) extends Graph {
+  val _vertices = flights.map (new FlightVertex(_))
+  println("made verts")
 
-  fToV foreach { case (f, vert) =>
-    vert._edges(SharesTo) = f.to.map(toF => FlightEdge(fToV(toF), vert))
-    vert._edges(SharesFrom) = f.from.map(toF => FlightEdge(fToV(toF), vert))
-    vert._edges(SharesPlane) = f.plane.map(toF => FlightEdge(fToV(toF), vert))
+  private var i = 0
+  while(i < flights.length) {
+    val f = flights(i)
+    val vert = _vertices(i)
+    vert._edges(SharesTo) = f.to.map(toF => FlightEdge(_vertices(toF.id-1), vert))
+    vert._edges(SharesFrom) = f.from.map(toF => FlightEdge(_vertices(toF.id-1), vert))
+    vert._edges(SharesPlane) = f.plane.map(toF => FlightEdge(_vertices(toF.id-1), vert))
+    i += 1
+    if(i % 1000 == 0) {
+      print(".")
+    }
   }
 
+  println()
+  println("Done")
+
+  def vertices = _vertices.toIterable
   val edgeTypes = Seq(SharesTo, SharesFrom, SharesPlane)
-  val vertices = fToV.values
 }
 
 object CANALImpl extends CANAL with StandardMemoizedSimlink
 
 object CanalTest {
   def main(args:Array[String]): Unit = {
-    val flightGraph = new FlightGraph(Source.fromFile(args(0)).getLines().map(Flight.fromCsvString).toIterable)
+    val flightGraph = new FlightGraph(Source.fromFile(args(0)).getLines().map(Flight.fromCsvString).toArray)
+    println("loaded graph")
 
     println(CANALImpl.run(flightGraph, 3, {v:Vertex => v.asInstanceOf[FlightVertex].f.arrivalDelay}))
   }
