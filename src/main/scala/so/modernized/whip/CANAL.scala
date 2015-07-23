@@ -1,5 +1,7 @@
 package so.modernized.whip
 
+import cc.factorie.util.Hooks3
+
 import scala.collection.mutable
 import scala.reflect.ClassTag
 
@@ -20,18 +22,29 @@ trait StandardMemoizedSimlink {
   this: CANAL =>
 
   private val participationMemo = mutable.HashMap.empty[(IndexedVertexSeq, IndexedVertexSeq), Int]
+  private val partMemoRef = mutable.HashMap.empty[IndexedVertexSeq, mutable.HashSet[(IndexedVertexSeq, IndexedVertexSeq)]].withDefault(_ => mutable.HashSet.empty[(IndexedVertexSeq, IndexedVertexSeq)])
 
   private def participation(xs:IndexedVertexSeq, ys:IndexedVertexSeq) = {
+    partMemoRef(xs) = partMemoRef(xs) += xs -> ys
+    partMemoRef(ys) = partMemoRef(ys) += xs -> ys
     participationMemo.getOrElseUpdate(xs -> ys,xs.valueSet.count { x =>
       x.edges.exists{ e =>
         ys.valueSet.contains(e.to)
       }
     })
   }
+  
+  // this method removes memoized values that will no longer be used to keep them from growing too large
+  mergeHooks += { case (m1, m2, _) =>
+      partMemoRef(m1) foreach participationMemo.remove
+      partMemoRef remove m1
+      partMemoRef(m2) foreach participationMemo.remove
+      partMemoRef remove m2
+  }
 
   private def participationRatio(xs:IndexedVertexSeq, ys:IndexedVertexSeq) = (participation(xs, ys) + participation(ys, xs)).toDouble / (xs.value.size + ys.value.size)
 
-  // this call participation many times, but participation's result is memoized
+  // this calls participation many times, but participation's result is memoized
   def smallDelta(xs:IndexedVertexSeq, ys:IndexedVertexSeq) = if(participationRatio(xs, ys) <= 0.5) {
     participation(xs, ys)
   } else {
@@ -57,6 +70,8 @@ trait CANAL {
   def simLink(v1s:IndexedVertexSeq, v2s:IndexedVertexSeq, grouping:Seq[IndexedVertexSeq]):Double
   def deltaMeasure(grouping:Seq[IndexedVertexSeq]):Int
   def mu(d:Int, dm1:Int) = (d - dm1).toDouble/dm1
+
+  val mergeHooks = new Hooks3[IndexedVertexSeq, IndexedVertexSeq, IndexedVertexSeq]
 
   def run[C <: Ordered[C] : ClassTag](g:Graph, numCats:Int, getOrdered:(Vertex => C))(implicit toOrdered:C => Ordered[C]) = {
     def updateSimlinkPairs(grouping:Seq[IndexedVertexSeq]) = grouping.sliding(2).collect{ case Seq(pair1, pair2) => pair1 -> pair2 }.toSeq.sortBy { case (v1, v2) => simLink(v1, v2, grouping) }
@@ -84,6 +99,7 @@ trait CANAL {
           val parentIdx = currentIdx
           currentIdx += 1
           val newCluster = m1 ++ (m2, parentIdx)
+          mergeHooks(m1, m2, newCluster)
           subclusters(parentIdx) = newCluster
           newCluster
       }.toSeq
