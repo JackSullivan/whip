@@ -5,39 +5,81 @@ import org.apache.spark.graphx.Graph
 import scala.collection.mutable
 import scala.reflect.ClassTag
 
+class OrderableRangeSet[A, C <% Ordered[C]](as:Iterable[A])(getOrdering:A => C) extends Set[A] with Ordered[OrderableRangeSet[A,C]] {
+
+  private var (s, start, end) = as match {
+    case set:Set[A] =>
+      val sq = set.toSeq.map(getOrdering).sorted
+      (set, sq.head, sq.last)
+    case sq:Seq[A] =>
+      val set = sq.toSet
+      val oSeq = sq.map(getOrdering).sorted
+      (set, oSeq.head, oSeq.last)
+  }
+
+  override def compare(that: OrderableRangeSet[A, C]): Int = if(this.end < that.start) {
+    -1
+  } else if (this.start > that.end) {
+    1
+  } else if ((this.start.compare(that.start) == 0) && (this.end.compare(that.end) == 0)) {
+    0
+  } else {
+    throw new IllegalArgumentException("Orderable Range Sets must not overlap")
+  }
+
+  private def updateExtrema(newElem:A): Unit = {
+    getOrdering(newElem) match {
+      case newStart if newStart < start => start = newStart
+      case newEnd if newEnd > end => end = newEnd
+      case otw => ()
+    }
+  }
+
+  override def +(elem: A): Set[A] = {
+    updateExtrema(elem)
+    s + elem
+  }
+  def ++(elems:OrderableRangeSet[A,C]) = new OrderableRangeSet[A,C](s ++ elems.s)(getOrdering)
+
+  override def contains(elem: A): Boolean = s contains elem
+  override def -(elem: A): Set[A] = {
+    updateExtrema(elem)
+    s - elem
+  }
+  override def iterator: Iterator[A] = s.iterator
+}
 
 /**
- * Sorts pairs that represent non-overlapping spans of orderd elements
- * @tparam C
+ * Takes a distance measure on pairs and orders them by the size of that measure
  */
-class SpanOrdering[C <: Ordered[C]] extends Ordering[(C,C)] {
-  override def compare(x: (C, C), y: (C, C)): Int = if(x._2 < y._1) {
-    -1
-  } else if(y._2 < x._1) {
-    1
-  } else { // this should be better
-    0
-  }
+class PairDistanceOrdering[A, C <% Ordered[C]](dist:((A, A) => C)) extends Ordering[(A, A)] {
+  override def compare(x: (A, A), y: (A, A)): Int = dist.tupled(x) compare dist.tupled(y)
 }
 
 trait CANAL {
 
+  // when implemented, this should be memoized for speed
   def simLink(v1s:Iterable[Vertex], v2s:Iterable[Vertex]):Double
   def deltaMeasure(grouping:Iterable[Set[Vertex]]):Double
   def mu(d:Double, dm1:Double) = (d - dm1)/dm1
 
-  class SimlinkOrdering(simFn:((Iterable[Vertex], Iterable[Vertex]) => Double)) extends Ordering[(IndexedVertexSet, IndexedVertexSet)] {
+  def run2[C <% Ordered[C] : ClassTag](g:Graph, numCats:Int, getOrdered:(Vertex => C)): Set[Set[Vertex]] = {
+    var currentGrouping = g.vertices.groupBy(getOrdered).values.toSeq.map(vs => new OrderableRangeSet[Vertex, C](vs.toSeq)(getOrdered)).sorted
+    val simlinkOrderedvertPairs = currentGrouping.sliding(2).map{case Seq(v1, v2) => v1 -> v2}.toSeq.sorted(new PairDistanceOrdering(simLink).reverse)
 
-    override def compare(x: (IndexedVertexSet, IndexedVertexSet), y: (IndexedVertexSet, IndexedVertexSet)): Int = (simFn(x._1.vs, x._2.vs) compare simFn(y._1.vs, y._2.vs)) * -1
+    var deltaPminusOne = null.asInstanceOf[Double]
+    var deltaP = deltaMeasure(currentGrouping)
 
-    //override def compare(x: (Set[Vertex], Set[Vertex]), y: (Set[Vertex], Set[Vertex])): Int = (simFn.tupled(x) compare simFn.tupled(y)) * -1 // since link is a distance
-  }
+    currentGrouping = new mutable.HashSet[Orde]
+    val dend = new Dendrogram[Vertex, OrderableRangeSet[Vertex, C]](currentGrouping.toArray)
+    var remainingPairs = simlinkOrderedvertPairs
+    while(remainingPairs.nonEmpty) {
+      val (v1, v2) = remainingPairs.head
+      deltaPminusOne = deltaP
+      deltaP =
 
-  private case class IndexedVertexSet(vs:Set[Vertex], i:Int)
-  def run2[C <: Ordered[C] : ClassTag](g:Graph, numCats:Int, getOrdered:(Vertex => C)): Set[Set[Vertex]] = {
-    val orderedVerts = g.vertices.groupBy(getOrdered).mapValues(_.toSet).toSeq.sortBy(_._1).map(_._2)
-    val vertPairs = orderedVerts.sliding(2)
-    val dend = new Dendrogram(orderedVerts.toArray)
+      dend.merge(v1, v2, mu(deltaP))
+    }
   }
 
   def run[C <: Ordered[C] : ClassTag](g:Graph, numCats:Int, getOrdered:(Vertex => C)): Set[Set[Vertex]] = {
@@ -77,9 +119,6 @@ trait CANAL {
   }
 }
 
-
-
-
 trait Edge {
   def to:Vertex
   def from:Vertex
@@ -93,22 +132,20 @@ trait Graph {
 
 }
 
-class Dendrogram[A](nodes:Array[Set[A]]) {
-
-  def this(ns:Array[A]) = this(ns map (Set(_)))
+class Dendrogram[A, SetType <: Set[A]](nodes:Array[SetType]) {
 
   private val numNodes = (nodes.length * 2) - 1
-  private val allNodes = new Array[(Set[A], Double)](numNodes)
-  private val nodeIdxMap = new mutable.HashMap[Set[A], Int]()
+  private val allNodes = new Array[(SetType, Double)](numNodes)
+  private val nodeIdxMap = new mutable.HashMap[SetType, Int]()
   nodes.zipWithIndex foreach {case (n, i) => allNodes(i) = n -> 0.0; nodeIdxMap(n) = i}
   private val merges = new Array[(Int, Int, Double)](nodes.length - 1)
   private var currentIdx = nodes.length
 
-  def merge(n1:Set[A], n2:Set[A], distance:Double):Set[A]= {
+  def merge(n1:SetType, n2:SetType, distance:Double):SetType= {
     val parentId = currentIdx
     currentIdx += 1
     merges(parentId - nodes.length) = (nodeIdxMap(n1), nodeIdxMap(n2), distance)
-    val parentSet = n1 ++ n2
+    val parentSet = (n1 ++ n2).asInstanceOf[SetType]
     nodeIdxMap(parentSet) = parentId
     allNodes(parentId) = parentSet -> distance
     parentSet
@@ -118,17 +155,17 @@ class Dendrogram[A](nodes:Array[Set[A]]) {
     val parentId = currentIdx
     currentIdx += 1
     merges(parentId - nodes.length) = (n1, n2, distance)
-    val parentSet = allNodes(n1)._1 ++ allNodes(n2)._1
+    val parentSet = (allNodes(n1)._1 ++ allNodes(n2)._1).asInstanceOf[SetType]
     nodeIdxMap(parentSet) = parentId
     allNodes(parentId) = parentSet -> distance
     parentId
   }
 
   @inline
-  def children(parent:Int):Set[A] = allNodes(parent)._1
+  def children(parent:Int):SetType = allNodes(parent)._1
 
   @inline
-  def index(a:Set[A]):Int = nodeIdxMap(a)
+  def index(a:SetType):Int = nodeIdxMap(a)
 
   def toDotString(composeString:Set[A] => String = _.mkString(", ")):String = {
     val sb = new StringBuilder("digraph Dendrogram {\n")
