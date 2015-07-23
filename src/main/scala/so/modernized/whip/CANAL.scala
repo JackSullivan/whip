@@ -39,31 +39,46 @@ trait CANAL {
   def deltaMeasure(grouping:Iterable[Seq[Vertex]]):Double
   def mu(d:Double, dm1:Double) = (d - dm1)/dm1
 
-  def run2[C <% Ordered[C] : ClassTag](g:Graph, numCats:Int, getOrdered:(Vertex => C)): Set[Set[Vertex]] = {
-    val simlinkAsc = new PairDistanceOrdering(simLink).reverse
-    def updateSimlinkPairs(grouping:Seq[Seq[Vertex]]) = grouping.sliding(2).map{case Seq(v1, v2) => v1 -> v2}.toSeq.sorted(simlinkAsc)
+  def run2[C <% Ordered[C] : ClassTag](g:Graph, numCats:Int, getOrdered:(Vertex => C)): Seq[C] = {
+    def updateSimlinkPairs(grouping:Seq[(Seq[Vertex], Int)]) = grouping.sliding(2).collect{ case Seq(pair1, pair2) => pair1 -> pair2 }.toSeq.sortBy { case ((v1, _), (v2, _)) => simLink(v1, v2) }
 
-
-    var currentGrouping = g.vertices.groupBy(getOrdered).values.toSeq.map(_.toSeq).sorted(new RangeSeqOrdering(getOrdered))
+    var currentGrouping = g.vertices.groupBy(getOrdered).values.toSeq.map(_.toSeq).sorted(new RangeSeqOrdering(getOrdered)).zipWithIndex
     var remainingPairs = updateSimlinkPairs(currentGrouping)
 
     var deltaPminusOne = null.asInstanceOf[Double]
-    var deltaP = deltaMeasure(currentGrouping)
+    var deltaP = deltaMeasure(currentGrouping.map(_._1))
 
-    val dend = new Dendrogram(currentGrouping.toArray)
+    val numLeaves = currentGrouping.length
+    var currentIdx = numLeaves
+    val merges = new Array[(Int, Int, Double)](numLeaves -1)
+    val mergeHeap = new mutable.PriorityQueue[(Int, Int, Double)]()(Ordering.by({tup:(Int, Int, Double) => tup._3}))
+    val subclusters = new Array[Seq[Vertex]]((numLeaves * 2) - 1)
+    currentGrouping foreach {case (v, i) => subclusters(i) = v}
+
     while(remainingPairs.nonEmpty) {
-      val (m1, m2) = remainingPairs.head
+      val ((m1, idx1), (m2, idx2)) = remainingPairs.head
       currentGrouping = currentGrouping.sliding(2).collect {
         case Vector(v1, v2) if v1 != m1 && v1 != m2 => v1
-        case Vector(v1, v2) if v1 == m1 => m1 ++ m2
+        case Vector(v1, v2) if v1 == m1 =>
+          val parentIdx = currentIdx
+          currentIdx += 1
+          val newCluster = m1 ++ m2
+          subclusters(parentIdx) = newCluster
+          newCluster -> parentIdx
       }.toSeq
       remainingPairs = updateSimlinkPairs(currentGrouping)
 
       deltaPminusOne = deltaP
-      deltaP = deltaMeasure(currentGrouping)
+      deltaP = deltaMeasure(currentGrouping.map(_._1))
 
-      dend.merge(m1, m2, mu(deltaP, deltaPminusOne))
+      mergeHeap.enqueue((idx1, idx2, mu(deltaP, deltaPminusOne)))
     }
+
+    val cutoffs = (0 until numCats).map { _ =>
+      val (v1, _, _) = mergeHeap.dequeue()
+      getOrdered(subclusters(v1).last)
+    }
+    cutoffs
   }
 }
 
@@ -83,40 +98,23 @@ trait Graph {
 class Dendrogram[A](nodes:Array[Seq[A]]) {
 
   private val numNodes = (nodes.length * 2) - 1
-  private val allNodes = new Array[(Seq[A], Double)](numNodes)
-  private val nodeIdxMap = new mutable.HashMap[Seq[A], Int]()
-  nodes.zipWithIndex foreach {case (n, i) => allNodes(i) = n -> 0.0; nodeIdxMap(n) = i}
   private val merges = new Array[(Int, Int, Double)](nodes.length - 1)
   private var currentIdx = nodes.length
 
   def nextId = currentIdx
 
-  // n1 is assumed to be before n1
-  def merge(n1:Seq[A], n2:Seq[A], distance:Double):Seq[A]= {
-    val parentId = currentIdx
-    currentIdx += 1
-    merges(parentId - nodes.length) = (nodeIdxMap(n1), nodeIdxMap(n2), distance)
-    val parentSet = n1 ++ n2
-    nodeIdxMap(parentSet) = parentId
-    allNodes(parentId) = parentSet -> distance
-    parentSet
-  }
-
   def mergeId(n1:Int, n2:Int, distance:Double):Int = {
     val parentId = currentIdx
     currentIdx += 1
     merges(parentId - nodes.length) = (n1, n2, distance)
-    val parentSet = allNodes(n1)._1 ++ allNodes(n2)._1
-    nodeIdxMap(parentSet) = parentId
-    allNodes(parentId) = parentSet -> distance
     parentId
   }
 
-  @inline
-  def children(parent:Int):Seq[A] = allNodes(parent)._1
+  //@inline
+  //def children(parent:Int):Seq[A] = allNodes(parent)._1
 
-  @inline
-  def index(a:Seq[A]):Int = nodeIdxMap(a)
+  //@inline
+  //def index(a:Seq[A]):Int = nodeIdxMap(a)
 
   def toDotString(composeString:Set[A] => String = _.mkString(", ")):String = {
     val sb = new StringBuilder("digraph Dendrogram {\n")
