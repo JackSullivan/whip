@@ -1,6 +1,6 @@
 package so.modernized.whip
 
-import cc.factorie.util.Hooks3
+import cc.factorie.util.{Trackable, Hooks3}
 
 import scala.collection.mutable
 import scala.io.Source
@@ -20,59 +20,82 @@ class IndexedVertexSeq(val value:Seq[Vertex], val idx:Int) extends (Seq[Vertex],
 trait StandardMemoizedSimlink {
   this: CANAL =>
 
-  private val participationMemo = mutable.AnyRefMap.empty[(IndexedVertexSeq, IndexedVertexSeq), mutable.AnyRefMap[EdgeType, Int]].withDefault(_ => mutable.AnyRefMap.empty)
+  private val participationMemo = mutable.AnyRefMap.empty[(IndexedVertexSeq, IndexedVertexSeq, EdgeType), Int]
   private val partMemoRef = mutable.AnyRefMap.empty[IndexedVertexSeq, mutable.HashSet[(IndexedVertexSeq, IndexedVertexSeq)]].withDefault(_ => mutable.HashSet.empty)
 
   private def participation(xs:IndexedVertexSeq, ys:IndexedVertexSeq, tpy:EdgeType) = {
-    val args = xs -> ys
-    partMemoRef(xs) = partMemoRef(xs) += args
-    partMemoRef(ys) = partMemoRef(ys) += args
-
-    participationMemo(args).getOrElseUpdate(tpy, xs.valueSet.count { x =>
-      x.edges(tpy).exists{ e =>
-        ys.valueSet.contains(e.to)
+    val args = (xs, ys, tpy)
+    if(!participationMemo.contains(args)) {
+      val vIter = xs.value.iterator
+      var edgeCount = 0
+      while (vIter.hasNext) {
+        val vert = vIter.next()
+        if(vert.edges.contains(tpy)) {
+          val eIter = vert.edges(tpy).iterator
+          var found = false
+          while (!found && eIter.hasNext) {
+            found = ys.valueSet.contains(eIter.next().to)
+          }
+          if (found) {edgeCount += 1}
+        }
       }
-    })
-  }
-
-  // this method removes memoized values that will no longer be used to keep them from growing too large
-  mergeHooks += { case (m1, m2, _) =>
-      partMemoRef(m1) foreach participationMemo.remove
-      partMemoRef remove m1
-      partMemoRef(m2) foreach participationMemo.remove
-      partMemoRef remove m2
+      participationMemo(args) = edgeCount
+      edgeCount
+    } else {
+      participationMemo(args)
+    }
   }
 
   private def participationRatio(xs:IndexedVertexSeq, ys:IndexedVertexSeq, eType:EdgeType) = (participation(xs, ys, eType) + participation(ys, xs, eType)).toDouble / (xs.value.size + ys.value.size)
 
-  // this calls participation many times, but participation's result is memoized
   def smallDelta(xs:IndexedVertexSeq, ys:IndexedVertexSeq, eType:EdgeType) = if(participationRatio(xs, ys, eType) <= 0.5) {
     participation(xs, ys, eType)
   } else {
     ys.value.size - participation(xs, ys, eType)
   }
 
-  def deltaMeasure(grouping:Seq[IndexedVertexSeq], edgeTypes:Iterable[EdgeType]) =
-    edgeTypes.flatMap { eType =>
-      grouping.flatMap { xs =>
-        grouping.map { ys =>
-          smallDelta(xs, ys, eType)
+  def deltaMeasure(grouping:Seq[IndexedVertexSeq], edgeTypes:Iterable[EdgeType]) = {
+    val start = System.currentTimeMillis()
+    var res = 0
+    val eIter = edgeTypes.iterator
+    val iIter= grouping.iterator
+    while(eIter.hasNext) {
+      val eType = eIter.next()
+      while(iIter.hasNext) {
+        val jIter = grouping.iterator
+        val gI = iIter.next()
+        while (jIter.hasNext) {
+          val gJ = jIter.next()
+          res += smallDelta(gI, gJ, eType)
         }
       }
-    }.sum
+    }
+    val time = System.currentTimeMillis() - start
+    println("delta Measure is %d, took %d millis".format(res, time))
+    res
+  }
 
   def simLink(i:IndexedVertexSeq, j:IndexedVertexSeq, grouping:Seq[IndexedVertexSeq], edgeTypes:Iterable[EdgeType]) = {
-    val res = edgeTypes.flatMap{ eType =>
-      grouping.collect { case k if k != i && k != j =>
-        math.abs(participationRatio(i,k, eType) - participationRatio(j, k, eType))
+    //val start = System.currentTimeMillis()
+    var res = 0.0
+    val eIter = edgeTypes.iterator
+    val gIter = grouping.iterator
+    while(eIter.hasNext) {
+      val eType = eIter.next()
+      while(gIter.hasNext) {
+        val k = gIter.next()
+        if(k != i && k != j) {
+          res += math.abs(participationRatio(i,k,eType) - participationRatio(j,k,eType))
+        }
       }
-    }.sum
-    //println("simLink between %d and %d is %.4f".format(i.idx, j.idx, res))
+    }
+    //val time = System.currentTimeMillis() - start
+    //println("simLink between %d and %d is %.4f, took %d millis".format(i.idx, j.idx, res, time))
     res
   }
 }
 
-trait CANAL {
+trait CANAL extends Trackable {
 
   // when implemented, this should be memoized for speed
   def simLink(v1s:IndexedVertexSeq, v2s:IndexedVertexSeq, grouping:Seq[IndexedVertexSeq], edgeTypes:Iterable[EdgeType]):Double
@@ -84,7 +107,7 @@ trait CANAL {
   def run[C](g:Graph, numCats:Int, getOrdered:(Vertex => C))(implicit toOrdered:Ordering[C]) = {
     println("running CANAL")
     def updateSimlinkPairs(grouping:Seq[IndexedVertexSeq]) =
-      grouping.sliding(2).collect{ case Seq(pair1, pair2) => pair1 -> pair2 }.toSeq.sortBy{ case (v1, v2) => simLink(v1, v2, grouping, g.edgeTypes)}
+      grouping.sliding(2).collect{ case Seq(pair1, pair2) => (pair1, pair2, simLink(pair1, pair2, grouping, g.edgeTypes)) }.toSeq.sortBy(_._3)
 
       //.toSeq.sortBy { case (v1, v2) => simLink(v1, v2, grouping, g.edgeTypes) }
 
@@ -92,7 +115,7 @@ trait CANAL {
     println("found %d initial groups".format(currentGrouping.size))
 
     var remainingPairs = updateSimlinkPairs(currentGrouping)
-    println("calculated simlinks, for " + remainingPairs.size + " pairs")
+    println("calculated simlinks for " + remainingPairs.size + " pairs")
 
     var deltaPminusOne = null.asInstanceOf[Int]
     var deltaP = deltaMeasure(currentGrouping, g.edgeTypes)
@@ -107,7 +130,7 @@ trait CANAL {
     println("entering while")
 
     while(remainingPairs.nonEmpty) {
-      val (m1, m2) = remainingPairs.head
+      val (m1, m2, sl) = remainingPairs.head
       println("merging cluster %d of size %d and cluster %d of size %d".format(m1.idx, m1.value.size, m2.idx, m2.value.size))
       println("before reshuffle had %d groupings".format(currentGrouping.size))
       currentGrouping = currentGrouping.sliding(2).collect {
@@ -133,13 +156,12 @@ trait CANAL {
       mergeHeap.enqueue((m1.idx, m2.idx, mu(deltaP, deltaPminusOne)))
     }
 
-    mergeHeap foreach println
     val cutoffs = (0 until numCats).map { _ =>
       val (v1, _, _) = mergeHeap.dequeue()
       val cutoff = getOrdered(subclusters(v1).value.last)
-      println("found cutoff at" + cutoff)
+      //println("found cutoff at" + cutoff)
       cutoff
-    }
+    }.sorted
     cutoffs
   }
 }
@@ -209,7 +231,7 @@ class FlightGraph(flights:Array[Flight]) extends Graph {
   println("Done")
 
   def vertices = _vertices.toIterable
-  val edgeTypes = Seq(SharesTo, SharesFrom, SharesPlane)
+  val edgeTypes = Seq(SharesTo, SharesFrom)//, SharesPlane)
 }
 
 object CANALImpl extends CANAL with StandardMemoizedSimlink
