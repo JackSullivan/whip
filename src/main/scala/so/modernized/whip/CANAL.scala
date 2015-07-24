@@ -1,6 +1,6 @@
 package so.modernized.whip
 
-import cc.factorie.util.{Trackable, Hooks3}
+import cc.factorie.util.Hooks3
 
 import scala.collection.mutable
 import scala.io.Source
@@ -12,6 +12,8 @@ class IndexedVertexSeq(val value:Seq[Vertex], val idx:Int) extends (Seq[Vertex],
     case that:IndexedVertexSeq => this.idx == that.idx
     case otw => false
   }
+  val start = value.head
+  val end = value.last
   lazy val valueSet = value.toSet
 
   def ++(other:IndexedVertexSeq, newIdx:Int) = new IndexedVertexSeq(this.value ++ other.value, newIdx)
@@ -21,7 +23,6 @@ trait StandardMemoizedSimlink {
   this: CANAL =>
 
   private val participationMemo = mutable.AnyRefMap.empty[(IndexedVertexSeq, IndexedVertexSeq, EdgeType), Int]
-  private val partMemoRef = mutable.AnyRefMap.empty[IndexedVertexSeq, mutable.HashSet[(IndexedVertexSeq, IndexedVertexSeq)]].withDefault(_ => mutable.HashSet.empty)
 
   private def participation(xs:IndexedVertexSeq, ys:IndexedVertexSeq, tpy:EdgeType) = {
     val args = (xs, ys, tpy)
@@ -55,7 +56,7 @@ trait StandardMemoizedSimlink {
   }
 
   def deltaMeasure(grouping:Seq[IndexedVertexSeq], edgeTypes:Iterable[EdgeType]) = {
-    val start = System.currentTimeMillis()
+    //val start = System.currentTimeMillis()
     var res = 0
     val eIter = edgeTypes.iterator
     val iIter= grouping.iterator
@@ -70,8 +71,8 @@ trait StandardMemoizedSimlink {
         }
       }
     }
-    val time = System.currentTimeMillis() - start
-    println("delta Measure is %d, took %d millis".format(res, time))
+    //val time = System.currentTimeMillis() - start
+    //println("delta Measure is %d, took %d millis".format(res, time))
     res
   }
 
@@ -95,9 +96,8 @@ trait StandardMemoizedSimlink {
   }
 }
 
-trait CANAL extends Trackable {
+trait CANAL {
 
-  // when implemented, this should be memoized for speed
   def simLink(v1s:IndexedVertexSeq, v2s:IndexedVertexSeq, grouping:Seq[IndexedVertexSeq], edgeTypes:Iterable[EdgeType]):Double
   def deltaMeasure(grouping:Seq[IndexedVertexSeq], edgeTypes:Iterable[EdgeType]):Int
   def mu(d:Int, dm1:Int) = (d - dm1).toDouble/dm1
@@ -108,8 +108,6 @@ trait CANAL extends Trackable {
     println("running CANAL")
     def updateSimlinkPairs(grouping:Seq[IndexedVertexSeq]) =
       grouping.sliding(2).collect{ case Seq(pair1, pair2) => (pair1, pair2, simLink(pair1, pair2, grouping, g.edgeTypes)) }.toSeq.sortBy(_._3)
-
-      //.toSeq.sortBy { case (v1, v2) => simLink(v1, v2, grouping, g.edgeTypes) }
 
     var currentGrouping = g.vertices.groupBy(getOrdered).toSeq.sortBy(_._1).zipWithIndex.map { case ((_, vs),idx) => new IndexedVertexSeq(vs.toSeq, idx) }
     println("found %d initial groups".format(currentGrouping.size))
@@ -131,8 +129,7 @@ trait CANAL extends Trackable {
 
     while(remainingPairs.nonEmpty) {
       val (m1, m2, sl) = remainingPairs.head
-      println("merging cluster %d of size %d and cluster %d of size %d".format(m1.idx, m1.value.size, m2.idx, m2.value.size))
-      println("before reshuffle had %d groupings".format(currentGrouping.size))
+      //println("merging cluster %d of size %d and cluster %d of size %d, with cutoff value %d".format(m1.idx, m1.value.size, m2.idx, m2.value.size, m1.end))
       currentGrouping = currentGrouping.sliding(2).collect {
         case Seq(v1, v2) if v1 != m1 && v1 != m2 => v1
         case Seq(v1, v2) if v1 == m1 =>
@@ -143,22 +140,22 @@ trait CANAL extends Trackable {
           subclusters(parentIdx) = newCluster
           newCluster
       }.toSeq
-      println("after reshuffle had %d groupings".format(currentGrouping.size))
 
-      println("before recalc had %d remaining pairs".format(remainingPairs.size))
+      //println("before recalc had %d remaining pairs".format(remainingPairs.size))
       remainingPairs = updateSimlinkPairs(currentGrouping)
-      println("after recalc had %d remaining pairs".format(remainingPairs.size))
+      //println("after recalc had %d remaining pairs".format(remainingPairs.size))
 
       deltaPminusOne = deltaP
       deltaP = deltaMeasure(currentGrouping, g.edgeTypes)
-      println("deltaP: %d deltaP - 1: %d".format(deltaP, deltaPminusOne))
+      //println("deltaP: %d deltaP - 1: %d".format(deltaP, deltaPminusOne))
+      println("%s\t%.4f".format(getOrdered(m1.end), mu(deltaP, deltaPminusOne)))
 
       mergeHeap.enqueue((m1.idx, m2.idx, mu(deltaP, deltaPminusOne)))
     }
 
     val cutoffs = (0 until numCats).map { _ =>
       val (v1, _, _) = mergeHeap.dequeue()
-      val cutoff = getOrdered(subclusters(v1).value.last)
+      val cutoff = getOrdered(subclusters(v1).end)
       //println("found cutoff at" + cutoff)
       cutoff
     }.sorted
@@ -231,7 +228,7 @@ class FlightGraph(flights:Array[Flight]) extends Graph {
   println("Done")
 
   def vertices = _vertices.toIterable
-  val edgeTypes = Seq(SharesTo, SharesFrom)//, SharesPlane)
+  val edgeTypes = Seq(SharesTo, SharesFrom, SharesPlane)
 }
 
 object CANALImpl extends CANAL with StandardMemoizedSimlink
@@ -241,6 +238,6 @@ object CanalTest {
     val flightGraph = new FlightGraph(Source.fromFile(args(0)).getLines().map(Flight.fromCsvString).toArray)
     println("loaded graph")
 
-    println(CANALImpl.run(flightGraph, 3, {v:Vertex => v.asInstanceOf[FlightVertex].f.arrivalDelay}))
+    println(CANALImpl.run(flightGraph, 5, {v:Vertex => v.asInstanceOf[FlightVertex].f.arrivalDelay}))
   }
 }
