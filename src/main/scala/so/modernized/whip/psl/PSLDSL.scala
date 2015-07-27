@@ -1,6 +1,7 @@
 package so.modernized.whip.psl
 
 import edu.umd.cs.psl.database.{DataStore, ReadOnlyDatabase}
+import scala.collection.JavaConverters._
 import edu.umd.cs.psl.database.rdbms.{RDBMSUniqueIntID, RDBMSUniqueStringID}
 import edu.umd.cs.psl.model.Model
 import edu.umd.cs.psl.model.argument._
@@ -11,7 +12,7 @@ import edu.umd.cs.psl.model.function.ExternalFunction
 import edu.umd.cs.psl.model.kernel.rule.{CompatibilityRuleKernel, ConstraintRuleKernel}
 import edu.umd.cs.psl.model.predicate.{StandardPredicate, SpecialPredicate, Predicate, PredicateFactory}
 import cc.factorie.app.strings.editDistance
-import edu.umd.cs.psl.model.set.term.{VariableSetTerm, SetUnion, SetTerm}
+import edu.umd.cs.psl.model.set.term.{FormulaSetTerm, VariableSetTerm, SetUnion, SetTerm}
 
 import scala.reflect.ClassTag
 
@@ -31,13 +32,6 @@ object PSLDSL {
       case idTerm: UniqueID => idTerm.asInstanceOf[T]
     }
 
-    private var auxVarIdx = 0
-
-    private def auxVariable = {
-      val variable = new Variable("aux__%d" format auxVarIdx)
-      auxVarIdx += 1
-      variable
-    }
 
     implicit def fn1ToPslFn[A: prove[PslType]#containsType](fn: A => Double): ExternalFunction = new ExternalFunction {
 
@@ -122,11 +116,31 @@ object PSLDSL {
     PredicateFactory.getFactory.createFunctionalPredicate(pred, ext)
 
   object SetComparisonOps {
-    type SetTermType = union[Variable]#or[StandardPredicate]
-    def set[T : prove[SetTermType]#containsType](t:T) = t match {
-      case v:Variable => new VariableSetTerm(v, ArgumentType.UniqueID)
+    private var auxVarIdx = 0
+
+    private def auxVariable = {
+      val variable = new Variable("aux__%d" format auxVarIdx)
+      auxVarIdx += 1
+      variable
     }
 
+    def set(v:Variable, path:Seq[StandardPredicate]=Seq.empty) = {
+      assert(path.forall(_.getArity == 2))
+      if (path.isEmpty) {
+        new VariableSetTerm(v, ArgumentType.UniqueID)
+      } else { // todo support inversion (maybe add along with typechecking)
+        var v1 = v
+        var v2 = auxVariable
+        val iter = path.iterator
+        val formula = path.map { pred =>
+          val qa = new QueryAtom(pred, v1, v2)
+          v1 = v2
+          v2 = auxVariable
+          qa
+        }.reduce(new Conjunction(_,_))
+        new FormulaSetTerm(formula, v2, Set(v).asJava)
+      }
+    }
 
     implicit class SetTermMethods(st1:SetTerm) extends AnyVal {
       def +(st2:SetTerm) = new SetUnion(st1, st2)
