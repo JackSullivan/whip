@@ -17,7 +17,7 @@ package object union {
     type unapply = (A @uncheckedVariance)
   }
 
-  trait Disjunction[A] {
+  private trait Disjunction[A] {
     type or[B] = Disjunction[A with not[B]]
     type apply = not[A]
   }
