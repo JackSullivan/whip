@@ -1,6 +1,10 @@
 package so.modernized.whip.psl
 
 import edu.umd.cs.psl.database.{DataStore, ReadOnlyDatabase}
+import edu.umd.cs.psl.model.kernel.Kernel
+import edu.umd.cs.psl.model.kernel.predicateconstraint.{DomainRangeConstraintType, DomainRangeConstraintKernel, SymmetryConstraintKernel}
+import edu.umd.cs.psl.model.kernel.setdefinition.SetDefinitionKernel
+import edu.umd.cs.psl.ui.aggregators.AggregateSetEquality
 import scala.collection.JavaConverters._
 import edu.umd.cs.psl.database.rdbms.{RDBMSUniqueIntID, RDBMSUniqueStringID}
 import edu.umd.cs.psl.model.Model
@@ -86,11 +90,24 @@ object PSLDSL {
     def =:=(v2:Variable) = new QueryAtom(SpecialPredicate.Equal, v1, v2)
   }
 
+  sealed trait Constraint {
+    def kernel(pred:StandardPredicate):Kernel
+  }
+  case object Symmetric extends Constraint {
+    def kernel(pred:StandardPredicate) = new SymmetryConstraintKernel(pred)
+  }
+  case object Functional extends Constraint {
+    def kernel(pred:StandardPredicate) = new DomainRangeConstraintKernel(pred, DomainRangeConstraintType.Functional)
+  }
+
   implicit class PredicateMethods(pred:Predicate) extends AnyVal {
-    def apply(ts:Term*) = {
+    def apply(ts:Term*) = new QueryAtom(pred, ts:_*)
 
-
-      new QueryAtom(pred, ts:_*)
+    // todo this whole interface is bad
+    def constrain(c:Constraint)(implicit m:Model) = {
+      val k = c.kernel(pred.asInstanceOf[StandardPredicate]) // todo fix
+      m.addKernel(k)
+      pred
     }
   }
 
@@ -117,12 +134,13 @@ object PSLDSL {
 
   object SetComparisonOps {
     private var auxVarIdx = 0
-
-    private def auxVariable = {
-      val variable = new Variable("aux__%d" format auxVarIdx)
+    private def nextAuxId = {
+      val res = auxVarIdx
       auxVarIdx += 1
-      variable
+      res
     }
+
+    private def auxVariable = new Variable("aux__" + nextAuxId)
 
     def set(v:Variable, path:Seq[StandardPredicate]=Seq.empty) = {
       assert(path.forall(_.getArity == 2))
@@ -133,7 +151,7 @@ object PSLDSL {
         var v2 = auxVariable
         val iter = path.iterator
         val formula = path.map { pred =>
-          val qa = new QueryAtom(pred, v1, v2)
+          val qa = pred(v1, v2)
           v1 = v2
           v2 = auxVariable
           qa
@@ -144,6 +162,16 @@ object PSLDSL {
 
     implicit class SetTermMethods(st1:SetTerm) extends AnyVal {
       def +(st2:SetTerm) = new SetUnion(st1, st2)
+
+      def setEquality(st2:SetTerm)(implicit ds:DataStore, m:Model) = {
+        val predName:String = "setEquality__" + nextAuxId
+        val (variables, argTypes) = st2.getAnchorVariables(st1.getAnchorVariables(new VariableTypeMap)).asScala.toSeq.sortBy(_._1.getName).unzip
+        val auxPred = PredicateFactory.getFactory.createStandardPredicate(predName, argTypes:_*)
+        ds.registerPredicate(auxPred)
+        // todo actually setting this up needs access to some other predicate from somewhere
+        //m.addKernel(new SetDefinitionKernel(auxPred, st1, st2, variables, , new AggregateSetEquality))
+        auxPred(variables)
+      }
     }
 
   }
@@ -171,6 +199,6 @@ object Foo {
 
   (~SamePerson(v"A",v"B")).where(weight = 1)
 
-
+  SamePerson.constrain(Functional).constrain(Symmetric)
 
 }
