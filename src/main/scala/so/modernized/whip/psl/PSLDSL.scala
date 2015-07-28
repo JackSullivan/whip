@@ -8,15 +8,12 @@ import edu.umd.cs.psl.database.rdbms.{RDBMSUniqueIntID, RDBMSUniqueStringID}
 import edu.umd.cs.psl.model.Model
 import edu.umd.cs.psl.model.argument._
 import edu.umd.cs.psl.model.atom.QueryAtom
-import edu.umd.cs.psl.model.formula.Disjunction
 import edu.umd.cs.psl.model.formula._
 import edu.umd.cs.psl.model.function.ExternalFunction
 import edu.umd.cs.psl.model.kernel.rule.{CompatibilityRuleKernel, ConstraintRuleKernel}
-import edu.umd.cs.psl.model.predicate.{StandardPredicate, SpecialPredicate, Predicate, PredicateFactory}
+import edu.umd.cs.psl.model.predicate.{SpecialPredicate, PredicateFactory}
 import cc.factorie.app.strings.editDistance
-import edu.umd.cs.psl.model.set.term.{FormulaSetTerm, VariableSetTerm, SetUnion, SetTerm}
-
-import scala.reflect.ClassTag
+import edu.umd.cs.psl.model.set.term.{FormulaSetTerm, VariableSetTerm}
 
 import so.modernized.whip.util.union._
 
@@ -109,15 +106,15 @@ object PSLDSL {
   trait PartialFunctional {this: PslType =>}
 
   object R {
-    /*
-    protected class InverseR[A : prove[PslType]#containsType, B:prove[PslType]#containsType](predName:String)(implicit ds:DataStore, m:Model, aTpe:TypeTag[A], bTpe:TypeTag[B]) extends R[A,B](predName + "__inverse")(ds,m, aTpe, bTpe) {
-      override def apply(ts:Term*) = new QueryAtom(pred, ts.reverse:_*)
-    }
-    */
 
+    protected trait Inversion {
+      this:R[_,_] =>
+
+      abstract override def apply(ts:Term*) = new QueryAtom(pred, ts.reverse:_*)
+    }
   }
 
-  case class R[A : prove[PslType]#containsType , B :prove[PslType]#containsType ](predName:String)(implicit ds:DataStore, m:Model, aTpe:TypeTag[A], bTpe:TypeTag[B]) {
+  case class R[A : prove[PslType]#containsType, B :prove[PslType]#containsType](predName:String)(implicit ds:DataStore, m:Model, aTpe:TypeTag[A], bTpe:TypeTag[B]) {
     protected val pred = PredicateFactory.getFactory.createStandardPredicate(predName, argType[A], argType[B])
     protected val model = m
 
@@ -136,18 +133,18 @@ object PSLDSL {
 
     def apply(ts:Term*) = new QueryAtom(pred, ts:_*)
 
-    //def inverse = new InverseR[A, B](predName)
+    import R._
+    def inverse = if (this.isInstanceOf[Symmetry]) {
+      new R[A,B](predName + "__inverse") with Symmetry with Inversion
+    } else {
+      new R[A,B](predName + "__inverse") with Inversion
+    }
   }
 
   case class f(predName:String, ext:ExternalFunction) {
     private val pred = PredicateFactory.getFactory.createFunctionalPredicate(predName,ext)
     def apply(ts:Term*) = new QueryAtom(pred, ts:_*)
   }
-
-  /*
-  def f(pred:String, ext:ExternalFunction) =
-    PredicateFactory.getFactory.createFunctionalPredicate(pred, ext)
-    */
 
   object SetComparisonOps {
     private var auxVarIdx = 0
