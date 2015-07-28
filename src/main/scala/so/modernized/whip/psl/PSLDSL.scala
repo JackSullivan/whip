@@ -35,28 +35,28 @@ object PSLDSL {
     }
 
 
-    implicit def fn1ToPslFn[A: prove[PslType]#containsType](fn: A => Double): ExternalFunction = new ExternalFunction {
+    implicit def fn1ToPslFn[A: prove[PslType]#containsType : TypeTag](fn: A => Double): ExternalFunction = new ExternalFunction {
 
       def getValue(db: ReadOnlyDatabase, args: GroundTerm*) = fn(extract[A](args(0)))
 
       val getArity = 1
-      val getArgumentTypes = Array(ArgumentType.String)
+      val getArgumentTypes = Array(argType[A])
     }
 
-    implicit def fn2ToPslFn[A: prove[PslType]#containsType, B: prove[PslType]#containsType](fn: (A, B) => Double): ExternalFunction = new ExternalFunction {
+    implicit def fn2ToPslFn[A: prove[PslType]#containsType : TypeTag, B: prove[PslType]#containsType : TypeTag](fn: (A, B) => Double): ExternalFunction = new ExternalFunction {
 
       def getValue(db: ReadOnlyDatabase, args: GroundTerm*) = fn(extract[A](args(0)), extract[B](args(1)))
 
-      val getArity = 1
-      val getArgumentTypes = Array(ArgumentType.String)
+      val getArity = 2
+      val getArgumentTypes = Array(argType[A], argType[B])
     }
 
-    implicit def fn3ToPslFn[A : prove[PslType]#containsType, B : prove[PslType]#containsType, C : prove[PslType]#containsType](fn: (A, B, C) => Double): ExternalFunction = new ExternalFunction {
+    implicit def fn3ToPslFn[A : prove[PslType]#containsType : TypeTag, B : prove[PslType]#containsType : TypeTag, C : prove[PslType]#containsType : TypeTag](fn: (A, B, C) => Double): ExternalFunction = new ExternalFunction {
 
       def getValue(db: ReadOnlyDatabase, args: GroundTerm*) = fn(extract[A](args(0)), extract[B](args(1)), extract[C](args(2)))
 
-      val getArity = 1
-      val getArgumentTypes = Array(ArgumentType.String)
+      val getArity = 3
+      val getArgumentTypes = Array(argType[A], argType[B], argType[C])
     }
   }
 
