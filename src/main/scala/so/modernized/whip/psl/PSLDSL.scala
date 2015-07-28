@@ -2,7 +2,7 @@ package so.modernized.whip.psl
 
 import edu.umd.cs.psl.database.{DataStore, ReadOnlyDatabase}
 import edu.umd.cs.psl.model.kernel.predicateconstraint.{DomainRangeConstraintType, DomainRangeConstraintKernel, SymmetryConstraintKernel}
-import scala.collection.JavaConverters._
+//import scala.collection.JavaConverters._
 import scala.reflect.runtime.universe._
 import edu.umd.cs.psl.database.rdbms.{RDBMSUniqueIntID, RDBMSUniqueStringID}
 import edu.umd.cs.psl.model.Model
@@ -12,8 +12,7 @@ import edu.umd.cs.psl.model.formula._
 import edu.umd.cs.psl.model.function.ExternalFunction
 import edu.umd.cs.psl.model.kernel.rule.{CompatibilityRuleKernel, ConstraintRuleKernel}
 import edu.umd.cs.psl.model.predicate.{SpecialPredicate, PredicateFactory}
-import cc.factorie.app.strings.editDistance
-import edu.umd.cs.psl.model.set.term.{FormulaSetTerm, VariableSetTerm}
+//import edu.umd.cs.psl.model.set.term.{SetUnion, SetTerm, FormulaSetTerm, VariableSetTerm}
 
 import so.modernized.whip.util.union._
 
@@ -76,7 +75,7 @@ object PSLDSL {
   def constraint(r:Formula)(implicit m:Model) {m addKernel new ConstraintRuleKernel(r)}
 
   implicit class VarStringContext(val sc:StringContext) extends AnyVal {
-    def v(args:Any*) = new Variable(sc.raw(args))
+    def v(args:Any*) = new Variable(sc.parts.mkString)
   }
 
   implicit class VariableMethods(val v1:Variable) extends AnyVal {
@@ -115,9 +114,10 @@ object PSLDSL {
   }
 
   case class R[A : prove[PslType]#containsType, B :prove[PslType]#containsType](predName:String)(implicit ds:DataStore, m:Model, aTpe:TypeTag[A], bTpe:TypeTag[B]) {
-    protected val pred = PredicateFactory.getFactory.createStandardPredicate(predName, argType[A], argType[B])
+    protected[PSLDSL] val pred = PredicateFactory.getFactory.createStandardPredicate(predName, argType[A], argType[B])
     protected val model = m
 
+    ds.registerPredicate(pred)
 
     typeOf[A] match {
       case a if a <:< typeOf[Functional] => model addKernel new DomainRangeConstraintKernel(pred, DomainRangeConstraintType.Functional)
@@ -141,11 +141,15 @@ object PSLDSL {
     }
   }
 
+  implicit def rToPred(r:R[_,_]) = r.pred
+  implicit def rTravToPredTrav(rs:Traversable[R[_,_]]) = rs map rToPred
+
   case class f(predName:String, ext:ExternalFunction) {
     private val pred = PredicateFactory.getFactory.createFunctionalPredicate(predName,ext)
     def apply(ts:Term*) = new QueryAtom(pred, ts:_*)
   }
 
+  /*
   object SetComparisonOps {
     private var auxVarIdx = 0
     private def nextAuxId = {
@@ -157,7 +161,6 @@ object PSLDSL {
     private def auxVariable = new Variable("aux__" + nextAuxId)
 
     def set(v:Variable, path:Seq[R[_,_]]=Seq.empty) = {
-      //assert(path.forall(_.getArity == 2))
       if (path.isEmpty) {
         new VariableSetTerm(v, ArgumentType.UniqueID)
       } else {
@@ -174,7 +177,6 @@ object PSLDSL {
       }
     }
 
-    /*
     implicit class SetTermMethods(st1:SetTerm) extends AnyVal {
       def +(st2:SetTerm) = new SetUnion(st1, st2)
 
@@ -188,37 +190,8 @@ object PSLDSL {
         auxPred(variables)
       }
     }
-    */
   }
-
+  */
 
 }
 
-object SamePersonExample {
-  import PSLDSL._
-  import FunctionConversions._
-
-  implicit val ds:DataStore = null
-  implicit val m:Model = null
-
-  val Network = R[UniqueID, UniqueID]("Network")
-  val Name = R[UniqueID, String]("Name")
-  val Knows = R[UniqueID, UniqueID]("Knows")
-  val SamePerson = new R[UniqueID with Functional, UniqueID]("SamePerson") with Symmetry
-  val SameName = f("SameName", {(s1:String, s2:String) => editDistance(s1,s2).toDouble})
-
-  val snA:GroundTerm = null
-  val snB:GroundTerm = null
-
-  val rule1 = (Network(v"A", snA) & Network(v"B", snB) & Name(v"A", v"X") & Name(v"B", v"Y") & SameName(v"X", v"Y")) >> SamePerson(v"A", v"B")
-  rule1.where(weight = 5.0)
-  val rule2 = (Network(v"A", snA) & Network(v"B", snB) & SamePerson(v"A", v"B") & Knows(v"A", v"Friend1") & Knows(v"B", "Friend2")) >> SamePerson(v"Friend1", v"Friend2")
-  rule2.where(weight = 3.2)
-
-  (~SamePerson(v"A",v"B")).where(weight = 1)
-
-  def main(args:Array[String]): Unit = {
-
-  }
-
-}
