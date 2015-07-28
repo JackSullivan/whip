@@ -23,7 +23,7 @@ object PSLDSL {
 
   object FunctionConversions {
 
-    private def extract[T : prove[PslType]#containsType](gt: GroundTerm): T = gt match {
+    def extract[T : prove[PslType]#containsType](gt: GroundTerm): T = gt match {
       case intTerm: IntegerAttribute => intTerm.getValue.asInstanceOf[T]
       case dblTerm: DoubleAttribute => dblTerm.getValue.asInstanceOf[T]
       case strTerm: StringAttribute => strTerm.getValue.asInstanceOf[T]

@@ -2,23 +2,25 @@ package so.modernized.whip.psl
 
 import edu.umd.cs.psl.application.inference.MPEInference
 import edu.umd.cs.psl.config.ConfigManager
-import edu.umd.cs.psl.database.{DatabasePopulator, Partition, DataStore}
-import edu.umd.cs.psl.database.rdbms.RDBMSDataStore
+import edu.umd.cs.psl.database.{ReadOnlyDatabase, DatabasePopulator, Partition, DataStore}
+import edu.umd.cs.psl.database.rdbms.{RDBMSUniqueIntID, RDBMSDataStore}
 import edu.umd.cs.psl.database.rdbms.driver.H2DatabaseDriver
 import edu.umd.cs.psl.model.Model
-import edu.umd.cs.psl.model.argument.{GroundTerm, UniqueID}
+import edu.umd.cs.psl.model.argument.{ArgumentType, GroundTerm, UniqueID}
 
 import cc.factorie.app.strings.editDistance
 
 import PSLDSL._
 import FunctionConversions._
 import edu.umd.cs.psl.model.predicate.StandardPredicate
-import edu.umd.cs.psl.ui.loading.InserterUtils
 import edu.umd.cs.psl.util.database.Queries
+import org.apache.log4j.{PropertyConfigurator, Logger, Level}
 import scala.collection.JavaConverters._
 import scala.io.Source
 
 object SamePersonExample {
+
+  val logging = Logger.getLogger(this.getClass)
 
   def readFile(fileName:String) = Source.fromFile(fileName).getLines().flatMap {line =>
     line.split("""\s+""") match {
@@ -28,8 +30,19 @@ object SamePersonExample {
   }
 
   def main(args:Array[String]): Unit = {
+    //PropertyConfigurator.configure()
+    logging.setLevel(Level.DEBUG)
 
     val config = ConfigManager.getManager.getBundle("basic-example")
+    val levenshteinSim = {(s1:String, s2:String) =>
+      val maxLen = math.max(s1.length, s2.length)
+      if(maxLen == 0) {
+        1.0
+      } else {
+        val sim = 1.0 - (editDistance(s1, s2).toDouble / maxLen.toDouble)
+        if(sim > 0.5) sim else 0.0
+      }
+    }
 
     val defaultPath = sys.props("java.io.tmpdir") + "/basic-example"
     val dbPath = config.getString("dbpath", defaultPath)
@@ -40,18 +53,21 @@ object SamePersonExample {
     val Network = R[UniqueID, UniqueID]("Network")
     val Name = R[UniqueID, String]("Name")
     val Knows = R[UniqueID, UniqueID]("Knows")
-    val SamePerson = new R[UniqueID with Functional, UniqueID]("SamePerson") with Symmetry
-    val SameName = f("SameName", {(s1:String, s2:String) => editDistance(s1,s2).toDouble})
+    val SamePerson = new R[UniqueID with PartialFunctional, UniqueID with PartialFunctional]("SamePerson") with Symmetry
+    val SameName = f("SameName", levenshteinSim)
 
     val snA:GroundTerm = ds.getUniqueID(1)
     val snB:GroundTerm = ds.getUniqueID(2)
 
-    val rule1 = (Network(v"A", snA) & Network(v"B", snB) & Name(v"A", v"X") & Name(v"B", v"Y") & SameName(v"X", v"Y")) >> SamePerson(v"A", v"B")
-    rule1.where(weight = 5.0)
-    val rule2 = (Network(v"A", snA) & Network(v"B", snB) & SamePerson(v"A", v"B") & Knows(v"A", v"Friend1") & Knows(v"B", v"Friend2")) >> SamePerson(v"Friend1", v"Friend2")
-    rule2.where(weight = 3.2)
+    ((Network(v"A", snA) & Network(v"B", snB)
+      & Name(v"A", v"X") & Name(v"B", v"Y")
+      & SameName(v"X", v"Y")) >> SamePerson(v"A", v"B")).where(weight = 5.0)
 
-    (~SamePerson(v"A",v"B")).where(weight = 1)
+    ((Network(v"A", snA) & Network(v"B", snB)
+      & SamePerson(v"A", v"B")
+      & Knows(v"A", v"Friend1") & Knows(v"B", v"Friend2")) >> SamePerson(v"Friend1", v"Friend2")).where(weight = 1.2)
+
+    //(~SamePerson(v"A",v"B")).where(weight = 1.0)
 
     println(m)
 
@@ -78,8 +94,15 @@ object SamePersonExample {
       (17, "Otto v. Lautern")
     )
 
-    networkA foreach{case (id,n) => insertName.insert(new Integer(id),n)}
-    networkB foreach{case (id,n) => insertName.insert(new Integer(id),n)}
+    for((_,a) <- networkA;
+        (_,b) <- networkB;
+        sim = levenshteinSim(a,b)
+        if sim > 0.0) {
+      println(a,b,sim)
+    }
+
+    networkA foreach{case (i,n) => insertName.insert(id(i),n)}
+    networkB foreach{case (i,n) => insertName.insert(id(i),n)}
 
     val dir = args(0)
 
@@ -90,11 +113,13 @@ object SamePersonExample {
     val networkData = readFile(dir + "sn_network.txt")
     val knowsData = readFile(dir + "sn_knows.txt")
 
+
     networkData foreach { case(i1, i2) =>
-      insertNetwork.insert(new Integer(i1), new Integer(i2))
+      insertNetwork.insert(id(i1), id(i2))
     }
+
     knowsData foreach { case(i1, i2) =>
-      insertKnows.insert(new Integer(i1), new Integer(i2))
+      insertKnows.insert(id(i1), id(i2))
     }
 
     val targetPart = new Partition(1)
@@ -112,9 +137,16 @@ object SamePersonExample {
     inf.mpeInference()
     inf.close()
 
+    val groundings = Queries.getAllAtoms(db, SamePerson).asScala
 
-    Queries.getAllAtoms(db, SamePerson).asScala foreach { atom =>
-      println(atom.toString + "\t" + "%.3f".format(atom.getValue))
+    groundings.toSeq.sortBy(-_.getValue) foreach { atom =>
+      val Array(a,b) = atom.getArguments
+      val ai = extract[RDBMSUniqueIntID](a).getID
+      val bi = extract[RDBMSUniqueIntID](b).getID
+      (networkA.toMap.get(ai),  networkB.toMap.get(bi)) match {
+        case (Some(n1), Some(n2)) => println(n1, n2, atom.getValue)
+        case otw => ()
+      }
     }
 
   }
