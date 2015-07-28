@@ -1,11 +1,9 @@
 package so.modernized.whip.psl
 
 import edu.umd.cs.psl.database.{DataStore, ReadOnlyDatabase}
-import edu.umd.cs.psl.model.kernel.Kernel
 import edu.umd.cs.psl.model.kernel.predicateconstraint.{DomainRangeConstraintType, DomainRangeConstraintKernel, SymmetryConstraintKernel}
-import edu.umd.cs.psl.model.kernel.setdefinition.SetDefinitionKernel
-import edu.umd.cs.psl.ui.aggregators.AggregateSetEquality
 import scala.collection.JavaConverters._
+import scala.reflect.runtime.universe._
 import edu.umd.cs.psl.database.rdbms.{RDBMSUniqueIntID, RDBMSUniqueStringID}
 import edu.umd.cs.psl.model.Model
 import edu.umd.cs.psl.model.argument._
@@ -69,7 +67,7 @@ object PSLDSL {
     case id:UniqueID => id
   }
 
-  implicit class FormulaMethods(f1:Formula) extends AnyVal{
+  implicit class FormulaMethods(val f1:Formula) extends AnyVal{
 
     def &(f2:Formula) = new Conjunction(f1, f2)
     def |(f2:Formula) = new Disjunction(f1, f2)
@@ -80,42 +78,21 @@ object PSLDSL {
 
   def constraint(r:Formula)(implicit m:Model) {m addKernel new ConstraintRuleKernel(r)}
 
-  implicit class VarStringContext(sc:StringContext) extends AnyVal {
+  implicit class VarStringContext(val sc:StringContext) extends AnyVal {
     def v(args:Any*) = new Variable(sc.raw(args))
   }
 
-  implicit class VariableMethods(v1:Variable) extends AnyVal {
+  implicit class VariableMethods(val v1:Variable) extends AnyVal {
     def ^(v2:Variable) = new QueryAtom(SpecialPredicate.NonSymmetric, v1, v2)
     def !(v2:Variable) = new QueryAtom(SpecialPredicate.NotEqual, v1, v2)
     def =:=(v2:Variable) = new QueryAtom(SpecialPredicate.Equal, v1, v2)
   }
 
-  sealed trait Constraint {
-    def kernel(pred:StandardPredicate):Kernel
-  }
-  case object Symmetric extends Constraint {
-    def kernel(pred:StandardPredicate) = new SymmetryConstraintKernel(pred)
-  }
-  case object Functional extends Constraint {
-    def kernel(pred:StandardPredicate) = new DomainRangeConstraintKernel(pred, DomainRangeConstraintType.Functional)
-  }
-
-  implicit class PredicateMethods(pred:Predicate) extends AnyVal {
-    def apply(ts:Term*) = new QueryAtom(pred, ts:_*)
-
-    // todo this whole interface is bad
-    def constrain(c:Constraint)(implicit m:Model) = {
-      val k = c.kernel(pred.asInstanceOf[StandardPredicate]) // todo fix
-      m.addKernel(k)
-      pred
-    }
-  }
-
-  private def argType[A : prove[PslType]#containsType](implicit ct:ClassTag[A]) = ct match {
-    case ClassTag.Int => ArgumentType.Integer
-    case ClassTag.Double => ArgumentType.Double
-    case c if c.runtimeClass == classOf[String]  => ArgumentType.String
-    case c if classOf[UniqueID].isAssignableFrom(c.runtimeClass) => ArgumentType.UniqueID
+  private def argType[A : prove[PslType]#containsType](implicit aTpe:TypeTag[A]) = typeOf[A] match {
+    case i if i <:< typeOf[Int]      => ArgumentType.Integer
+    case d if d <:< typeOf[Double]   => ArgumentType.Double
+    case s if s <:< typeOf[String]   => ArgumentType.String
+    case u if u <:< typeOf[UniqueID] => ArgumentType.UniqueID
   }
 
   def id[ID : prove[IdType]#containsType](idType:ID):UniqueID = idType match {
@@ -123,14 +100,54 @@ object PSLDSL {
     case iId:Int => new RDBMSUniqueIntID(iId)
   }
 
-  def R[A : prove[PslType]#containsType, B : prove[PslType]#containsType](pred:String)(implicit ds:DataStore) = {
-    val pred = PredicateFactory.getFactory.createStandardPredicate(pred, argType[A], argType[B])
-    ds.registerPredicate(pred)
-    pred
+  trait Symmetry {
+    this: R[_,_] =>
+     model addKernel new SymmetryConstraintKernel(pred)
   }
 
+  trait Functional {this: PslType =>}
+  trait PartialFunctional {this: PslType =>}
+
+  object R {
+    /*
+    protected class InverseR[A : prove[PslType]#containsType, B:prove[PslType]#containsType](predName:String)(implicit ds:DataStore, m:Model, aTpe:TypeTag[A], bTpe:TypeTag[B]) extends R[A,B](predName + "__inverse")(ds,m, aTpe, bTpe) {
+      override def apply(ts:Term*) = new QueryAtom(pred, ts.reverse:_*)
+    }
+    */
+
+  }
+
+  case class R[A : prove[PslType]#containsType , B :prove[PslType]#containsType ](predName:String)(implicit ds:DataStore, m:Model, aTpe:TypeTag[A], bTpe:TypeTag[B]) {
+    protected val pred = PredicateFactory.getFactory.createStandardPredicate(predName, argType[A], argType[B])
+    protected val model = m
+
+
+    typeOf[A] match {
+      case a if a <:< typeOf[Functional] => model addKernel new DomainRangeConstraintKernel(pred, DomainRangeConstraintType.Functional)
+      case a if a <:< typeOf[PartialFunctional] => model addKernel new DomainRangeConstraintKernel(pred, DomainRangeConstraintType.PartialFunctional)
+      case otw => ()
+    }
+
+    typeOf[B] match {
+      case b if b <:< typeOf[Functional] => model addKernel new DomainRangeConstraintKernel(pred, DomainRangeConstraintType.InverseFunctional)
+      case b if b <:< typeOf[PartialFunctional] => model addKernel new DomainRangeConstraintKernel(pred, DomainRangeConstraintType.PartialInverseFunctional)
+      case otw => ()
+    }
+
+    def apply(ts:Term*) = new QueryAtom(pred, ts:_*)
+
+    //def inverse = new InverseR[A, B](predName)
+  }
+
+  case class f(predName:String, ext:ExternalFunction) {
+    private val pred = PredicateFactory.getFactory.createFunctionalPredicate(predName,ext)
+    def apply(ts:Term*) = new QueryAtom(pred, ts:_*)
+  }
+
+  /*
   def f(pred:String, ext:ExternalFunction) =
     PredicateFactory.getFactory.createFunctionalPredicate(pred, ext)
+    */
 
   object SetComparisonOps {
     private var auxVarIdx = 0
@@ -142,11 +159,11 @@ object PSLDSL {
 
     private def auxVariable = new Variable("aux__" + nextAuxId)
 
-    def set(v:Variable, path:Seq[StandardPredicate]=Seq.empty) = {
-      assert(path.forall(_.getArity == 2))
+    def set(v:Variable, path:Seq[R[_,_]]=Seq.empty) = {
+      //assert(path.forall(_.getArity == 2))
       if (path.isEmpty) {
         new VariableSetTerm(v, ArgumentType.UniqueID)
-      } else { // todo support inversion (maybe add along with typechecking)
+      } else {
         var v1 = v
         var v2 = auxVariable
         val iter = path.iterator
@@ -155,11 +172,12 @@ object PSLDSL {
           v1 = v2
           v2 = auxVariable
           qa
-        }.reduce(new Conjunction(_,_))
+        }.reduce[Formula](_ & _)
         new FormulaSetTerm(formula, v2, Set(v).asJava)
       }
     }
 
+    /*
     implicit class SetTermMethods(st1:SetTerm) extends AnyVal {
       def +(st2:SetTerm) = new SetUnion(st1, st2)
 
@@ -173,20 +191,23 @@ object PSLDSL {
         auxPred(variables)
       }
     }
-
+    */
   }
 
 
 }
 
-object Foo {
+object SamePersonExample {
   import PSLDSL._
   import FunctionConversions._
+
+  implicit val ds:DataStore = null
+  implicit val m:Model = null
 
   val Network = R[UniqueID, UniqueID]("Network")
   val Name = R[UniqueID, String]("Name")
   val Knows = R[UniqueID, UniqueID]("Knows")
-  val SamePerson = R[UniqueID, UniqueID]("SamePerson")
+  val SamePerson = new R[UniqueID with Functional, UniqueID]("SamePerson") with Symmetry
   val SameName = f("SameName", {(s1:String, s2:String) => editDistance(s1,s2).toDouble})
 
   val snA:GroundTerm = null
@@ -199,6 +220,8 @@ object Foo {
 
   (~SamePerson(v"A",v"B")).where(weight = 1)
 
-  SamePerson.constrain(Functional).constrain(Symmetric)
+  def main(args:Array[String]): Unit = {
+
+  }
 
 }
