@@ -134,6 +134,8 @@ object PSLDSL {
       case otw => ()
     }
 
+
+
     def apply(ts:Term*) = new QueryAtom(pred, ts:_*)
 
     private var inserter:Inserter = null
@@ -144,6 +146,16 @@ object PSLDSL {
         lastPart = part
       }
       inserter.insert(a.asInstanceOf[AnyRef],b.asInstanceOf[AnyRef])
+    }
+
+    private var labeledInserter:Inserter = null
+    private var labeledLastPart:Partition = null
+    def loadLabeled[A1 : prove[PslType]#containsType, B1 : prove[PslType]#containsType](part:Partition)(a:A1, b:B1, conf:Double): Unit = {
+      if(labeledInserter==null || part != labeledLastPart) {
+        labeledInserter = ds.getInserter(pred, part)
+        labeledLastPart = part
+      }
+      labeledInserter.insertValue(conf, a.asInstanceOf[AnyRef],b.asInstanceOf[AnyRef])
     }
 
     import R._

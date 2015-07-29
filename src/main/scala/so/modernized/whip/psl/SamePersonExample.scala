@@ -1,6 +1,7 @@
 package so.modernized.whip.psl
 
 import edu.umd.cs.psl.application.inference.MPEInference
+import edu.umd.cs.psl.application.learning.weight.maxlikelihood.MaxLikelihoodMPE
 import edu.umd.cs.psl.config.ConfigManager
 import edu.umd.cs.psl.database.{ReadOnlyDatabase, DatabasePopulator, Partition, DataStore}
 import edu.umd.cs.psl.database.rdbms.{RDBMSUniqueIntID, RDBMSDataStore}
@@ -18,9 +19,8 @@ import org.apache.log4j.{PropertyConfigurator, Logger, Level}
 import scala.collection.JavaConverters._
 import scala.io.Source
 
-object SamePersonExample {
-
-  val logging = Logger.getLogger(this.getClass)
+sealed trait ExampleCommons {
+  lazy val logging = Logger.getLogger(this.getClass)
 
   def readFile(fileName:String) = Source.fromFile(fileName).getLines().flatMap {line =>
     line.split("""\s+""") match {
@@ -29,20 +29,21 @@ object SamePersonExample {
     }
   }
 
-  def main(args:Array[String]): Unit = {
-    //PropertyConfigurator.configure()
-    logging.setLevel(Level.DEBUG)
+  val levenshteinSim = {(s1:String, s2:String) =>
+    val maxLen = math.max(s1.length, s2.length)
+    if(maxLen == 0) {
+      1.0
+    } else {
+      val sim = 1.0 - (editDistance(s1, s2).toDouble / maxLen.toDouble)
+      if(sim > 0.5) sim else 0.0
+    }
+  }
+
+  def init(args:Array[String]) = new {
+
+    logging.setLevel(Level.ALL)
 
     val config = ConfigManager.getManager.getBundle("basic-example")
-    val levenshteinSim = {(s1:String, s2:String) =>
-      val maxLen = math.max(s1.length, s2.length)
-      if(maxLen == 0) {
-        1.0
-      } else {
-        val sim = 1.0 - (editDistance(s1, s2).toDouble / maxLen.toDouble)
-        if(sim > 0.5) sim else 0.0
-      }
-    }
 
     val defaultPath = sys.props("java.io.tmpdir") + "/basic-example"
     val dbPath = config.getString("dbpath", defaultPath)
@@ -93,13 +94,6 @@ object SamePersonExample {
       (17, "Otto v. Lautern")
     ).map{case (i,n) => id(i) -> n}
 
-    for((_,a) <- networkA;
-        (_,b) <- networkB;
-        sim = levenshteinSim(a,b)
-        if sim > 0.0) {
-      println(a,b,sim)
-    }
-
     networkA foreach {case (id, name) => Name.load(evidencePart)(id,name)}
     networkB foreach {case (id, name) => Name.load(evidencePart)(id,name)}
 
@@ -116,11 +110,20 @@ object SamePersonExample {
     val db = ds.getDatabase(targetPart, preds.asJava, evidencePart)
 
     val population = Map(v"UserA" -> networkA.map{case (id,_) => id.asInstanceOf[GroundTerm]}.toSet.asJava,
-                  v"UserB" -> networkB.map{case (id,_) => id.asInstanceOf[GroundTerm]}.toSet.asJava).asJava
+      v"UserB" -> networkB.map{case (id,_) => id.asInstanceOf[GroundTerm]}.toSet.asJava).asJava
 
     val populator = new DatabasePopulator(db)
     populator.populate(SamePerson(v"UserA", v"UserB"), population)
     populator.populate(SamePerson(v"UserB", v"UserA"), population)
+  }
+
+}
+
+object SamePersonExample extends ExampleCommons {
+
+  def main(args:Array[String]): Unit = {
+    val i = init(args)
+    import i._
 
     val inf = new MPEInference(m, db, config)
     inf.mpeInference()
@@ -142,3 +145,47 @@ object SamePersonExample {
 
 }
 
+object SamePersonLabeledExample extends ExampleCommons {
+
+  def readLabelFile(fileName:String) = Source.fromFile(fileName).getLines().flatMap { line =>
+    line.split("""\s+""") match {
+      case Array(x,y,conf) => Some((x.toInt, y.toInt, conf.toDouble))
+      case otw => None
+    }
+  }
+
+  def main(args:Array[String]): Unit = {
+    val i = init(args)
+    import i._
+
+    val truePart = new Partition(2)
+    val truth = readLabelFile(dir + "sn_align.txt")
+    truth.foreach { case(a,b,conf) => SamePerson.loadLabeled(truePart)(id(a),id(b), conf) }
+    val targetSet = Set(SamePerson:StandardPredicate).asJava
+    val trueDb = ds.getDatabase(truePart, targetSet)
+
+    val weightLearning = new MaxLikelihoodMPE(m, db, trueDb, config)
+    weightLearning.learn()
+    weightLearning.close()
+
+    println("Learned model:\n" + m.toString)
+
+
+    val inf = new MPEInference(m, db, config)
+    inf.mpeInference()
+    inf.close()
+
+    val groundings = Queries.getAllAtoms(db, SamePerson).asScala
+
+    groundings.toSeq.sortBy(-_.getValue) foreach { atom =>
+      val Array(a,b) = atom.getArguments
+      val ai = extract[RDBMSUniqueIntID](a)
+      val bi = extract[RDBMSUniqueIntID](b)
+      (networkA.toMap.get(ai),  networkB.toMap.get(bi)) match {
+        case (Some(n1), Some(n2)) => println(n1, n2, atom.getValue)
+        case otw => ()
+      }
+    }
+  }
+
+}
