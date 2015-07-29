@@ -65,14 +65,13 @@ object SamePersonExample {
 
     ((Network(v"A", snA) & Network(v"B", snB)
       & SamePerson(v"A", v"B")
-      & Knows(v"A", v"Friend1") & Knows(v"B", v"Friend2")) >> SamePerson(v"Friend1", v"Friend2")).where(weight = 1.2)
+      & Knows(v"A", v"Friend1") & Knows(v"B", v"Friend2")) >> SamePerson(v"Friend1", v"Friend2")).where(weight = 3.2)
 
-    //(~SamePerson(v"A",v"B")).where(weight = 1.0)
+    (~SamePerson(v"A",v"B")).where(weight = 1.0)
 
     println(m)
 
     val evidencePart = new Partition(0)
-    val insertName = ds.getInserter(Name, evidencePart)
 
     val networkA = Seq (
       (1, "John Braker"),
@@ -82,7 +81,7 @@ object SamePersonExample {
       (5, "Jessica Pannillo"),
       (6, "Peter Smithsonian"),
       (7, "Miranda Parker")
-    )
+    ).map{case (i,n) => id(i) -> n}
 
     val networkB = Seq(
       (11, "Johny Braker"),
@@ -92,7 +91,7 @@ object SamePersonExample {
       (15, "J. Panelo"),
       (16, "Gustav Heinrich Gans"),
       (17, "Otto v. Lautern")
-    )
+    ).map{case (i,n) => id(i) -> n}
 
     for((_,a) <- networkA;
         (_,b) <- networkB;
@@ -101,33 +100,23 @@ object SamePersonExample {
       println(a,b,sim)
     }
 
-    networkA foreach{case (i,n) => insertName.insert(id(i),n)}
-    networkB foreach{case (i,n) => insertName.insert(id(i),n)}
+    networkA foreach {case (id, name) => Name.load(evidencePart)(id,name)}
+    networkB foreach {case (id, name) => Name.load(evidencePart)(id,name)}
 
     val dir = args(0)
 
-    val insertNetwork = ds.getInserter(Network, evidencePart)
+    val networkData = readFile(dir + "sn_network.txt").map{case(i1,i2) => id(i1) -> id(i2)}
+    val knowsData = readFile(dir + "sn_knows.txt").map{case(i1,i2) => id(i1) -> id(i2)}
 
-    val insertKnows = ds.getInserter(Knows, evidencePart)
-
-    val networkData = readFile(dir + "sn_network.txt")
-    val knowsData = readFile(dir + "sn_knows.txt")
-
-
-    networkData foreach { case(i1, i2) =>
-      insertNetwork.insert(id(i1), id(i2))
-    }
-
-    knowsData foreach { case(i1, i2) =>
-      insertKnows.insert(id(i1), id(i2))
-    }
+    networkData foreach { case(id1, id2) => Network.load(evidencePart)(id1, id2)}
+    knowsData foreach { case(id1, id2) => Knows.load(evidencePart)(id1, id2)}
 
     val targetPart = new Partition(1)
     val preds:Set[StandardPredicate] = Set(Network, Name, Knows)
     val db = ds.getDatabase(targetPart, preds.asJava, evidencePart)
 
-    val population = Map(v"UserA" -> networkA.map{case (id,_) => ds.getUniqueID(id).asInstanceOf[GroundTerm]}.toSet.asJava,
-                  v"UserB" -> networkB.map{case (id,_) => ds.getUniqueID(id).asInstanceOf[GroundTerm]}.toSet.asJava).asJava
+    val population = Map(v"UserA" -> networkA.map{case (id,_) => id.asInstanceOf[GroundTerm]}.toSet.asJava,
+                  v"UserB" -> networkB.map{case (id,_) => id.asInstanceOf[GroundTerm]}.toSet.asJava).asJava
 
     val populator = new DatabasePopulator(db)
     populator.populate(SamePerson(v"UserA", v"UserB"), population)
@@ -141,8 +130,8 @@ object SamePersonExample {
 
     groundings.toSeq.sortBy(-_.getValue) foreach { atom =>
       val Array(a,b) = atom.getArguments
-      val ai = extract[RDBMSUniqueIntID](a).getID
-      val bi = extract[RDBMSUniqueIntID](b).getID
+      val ai = extract[RDBMSUniqueIntID](a)
+      val bi = extract[RDBMSUniqueIntID](b)
       (networkA.toMap.get(ai),  networkB.toMap.get(bi)) match {
         case (Some(n1), Some(n2)) => println(n1, n2, atom.getValue)
         case otw => ()

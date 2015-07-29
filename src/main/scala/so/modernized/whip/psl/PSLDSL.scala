@@ -1,9 +1,12 @@
 package so.modernized.whip.psl
 
+import edu.umd.cs.psl.database.loading.Inserter
 import edu.umd.cs.psl.database.{DataStore, ReadOnlyDatabase}
 import edu.umd.cs.psl.model.kernel.predicateconstraint.{DomainRangeConstraintType, DomainRangeConstraintKernel, SymmetryConstraintKernel}
+
 //import scala.collection.JavaConverters._
 import scala.reflect.runtime.universe._
+import edu.umd.cs.psl.database.Partition
 import edu.umd.cs.psl.database.rdbms.{RDBMSUniqueIntID, RDBMSUniqueStringID}
 import edu.umd.cs.psl.model.Model
 import edu.umd.cs.psl.model.argument._
@@ -132,6 +135,16 @@ object PSLDSL {
     }
 
     def apply(ts:Term*) = new QueryAtom(pred, ts:_*)
+
+    private var inserter:Inserter = null
+    private var lastPart:Partition = null
+    def load(part:Partition)(a:A, b:B): Unit = {
+      if(inserter==null || part != lastPart) {
+        inserter = ds.getInserter(pred, part)
+        lastPart = part
+      }
+      inserter.insert(a.asInstanceOf[AnyRef],b.asInstanceOf[AnyRef])
+    }
 
     import R._
     def inverse = if (this.isInstanceOf[Symmetry]) {
