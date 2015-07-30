@@ -168,9 +168,10 @@ object SamePersonLabeledExample extends ExampleCommons {
     val i = init(args)
     import i._
 
+
     val truePart = new Partition(2)
     val truth = readLabelFile(dir + "sn_align.txt")
-    truth.foreach { case(a,b,conf) => SamePerson.loadLabeled(truePart)(id(a).asInstanceOf[UniqueID with PartialFunctional],id(b).asInstanceOf[UniqueID with PartialFunctional], conf) }
+    truth.foreach { case(a,b,conf) => SamePerson.loadLabeled(truePart)(id(a),id(b), conf) }
     val targetSet = Set(SamePerson:StandardPredicate).asJava
     val trueDb = ds.getDatabase(truePart, targetSet)
 

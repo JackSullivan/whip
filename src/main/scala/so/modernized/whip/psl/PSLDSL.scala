@@ -4,7 +4,7 @@ import edu.umd.cs.psl.database.loading.Inserter
 import edu.umd.cs.psl.database.{DataStore, ReadOnlyDatabase}
 import edu.umd.cs.psl.model.kernel.predicateconstraint.{DomainRangeConstraintType, DomainRangeConstraintKernel, SymmetryConstraintKernel}
 
-//import scala.collection.JavaConverters._
+import scala.collection.JavaConverters._
 import scala.reflect.runtime.universe._
 import edu.umd.cs.psl.database.Partition
 import edu.umd.cs.psl.database.rdbms.{RDBMSUniqueIntID, RDBMSUniqueStringID}
@@ -15,7 +15,7 @@ import edu.umd.cs.psl.model.formula._
 import edu.umd.cs.psl.model.function.ExternalFunction
 import edu.umd.cs.psl.model.kernel.rule.{CompatibilityRuleKernel, ConstraintRuleKernel}
 import edu.umd.cs.psl.model.predicate.{SpecialPredicate, PredicateFactory}
-//import edu.umd.cs.psl.model.set.term.{SetUnion, SetTerm, FormulaSetTerm, VariableSetTerm}
+import edu.umd.cs.psl.model.set.term.{SetUnion, SetTerm, FormulaSetTerm, VariableSetTerm}
 
 import so.modernized.whip.util.union._
 
@@ -116,6 +116,8 @@ object PSLDSL {
     }
   }
 
+  implicit def decorate[T : prove[PslType]#containsType](t:T):T with Functional with PartialFunctional = t.asInstanceOf[T with Functional with PartialFunctional]
+
   case class R[A : prove[PslType]#containsType, B :prove[PslType]#containsType](predName:String)(implicit ds:DataStore, m:Model, aTpe:TypeTag[A], bTpe:TypeTag[B]) {
     protected[PSLDSL] val pred = PredicateFactory.getFactory.createStandardPredicate(predName, argType[A], argType[B])
     protected val model = m
@@ -150,12 +152,12 @@ object PSLDSL {
 
     private var labeledInserter:Inserter = null
     private var labeledLastPart:Partition = null
-    def loadLabeled(part:Partition)(a:A, b:B, conf:Double): Unit = {
+    def loadLabeled[A1, B1](part:Partition)(a:A1, b:B1, conf:Double)(implicit toA:A1 => A, toB:B1 => B): Unit = {
       if(labeledInserter==null || part != labeledLastPart) {
         labeledInserter = ds.getInserter(pred, part)
         labeledLastPart = part
       }
-      labeledInserter.insertValue(conf, a.asInstanceOf[AnyRef],b.asInstanceOf[AnyRef])
+      labeledInserter.insertValue(conf, toA(a).asInstanceOf[AnyRef],toB(b).asInstanceOf[AnyRef])
     }
 
     import R._
