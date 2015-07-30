@@ -72,7 +72,7 @@ object PSLDSL {
     def |(f2:Formula) = new Disjunction(f1, f2)
     def >>(f2:Formula) = new Rule(f1, f2)
     def unary_~ = new Negation(f1)
-    def where(weight:Double, isSquared:Boolean = false)(implicit m:Model) {m.addKernel(new CompatibilityRuleKernel(f1, weight, isSquared))}
+    def where(weight:Double, isSquared:Boolean = true)(implicit m:Model) {m.addKernel(new CompatibilityRuleKernel(f1, weight, isSquared))}
   }
 
   def constraint(r:Formula)(implicit m:Model) {m addKernel new ConstraintRuleKernel(r)}
@@ -150,7 +150,7 @@ object PSLDSL {
 
     private var labeledInserter:Inserter = null
     private var labeledLastPart:Partition = null
-    def loadLabeled[A1 : prove[PslType]#containsType, B1 : prove[PslType]#containsType](part:Partition)(a:A1, b:B1, conf:Double): Unit = {
+    def loadLabeled(part:Partition)(a:A, b:B, conf:Double): Unit = {
       if(labeledInserter==null || part != labeledLastPart) {
         labeledInserter = ds.getInserter(pred, part)
         labeledLastPart = part

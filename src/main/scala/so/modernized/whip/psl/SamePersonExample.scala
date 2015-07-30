@@ -1,6 +1,8 @@
 package so.modernized.whip.psl
 
-import edu.umd.cs.psl.application.inference.MPEInference
+import java.io.{BufferedWriter, FileWriter}
+
+import edu.umd.cs.psl.application.inference.{LazyMPEInference, MPEInference}
 import edu.umd.cs.psl.application.learning.weight.maxlikelihood.MaxLikelihoodMPE
 import edu.umd.cs.psl.config.ConfigManager
 import edu.umd.cs.psl.database.{ReadOnlyDatabase, DatabasePopulator, Partition, DataStore}
@@ -62,13 +64,13 @@ sealed trait ExampleCommons {
 
     ((Network(v"A", snA) & Network(v"B", snB)
       & Name(v"A", v"X") & Name(v"B", v"Y")
-      & SameName(v"X", v"Y")) >> SamePerson(v"A", v"B")).where(weight = 5.0)
+      & SameName(v"X", v"Y")) >> SamePerson(v"A", v"B")).where(weight = 5.0, isSquared = true)
 
     ((Network(v"A", snA) & Network(v"B", snB)
       & SamePerson(v"A", v"B")
-      & Knows(v"A", v"Friend1") & Knows(v"B", v"Friend2")) >> SamePerson(v"Friend1", v"Friend2")).where(weight = 3.2)
+      & Knows(v"A", v"Friend1") & Knows(v"B", v"Friend2")) >> SamePerson(v"Friend1", v"Friend2")).where(weight = 3.2, isSquared = true)
 
-    (~SamePerson(v"A",v"B")).where(weight = 1.0)
+    (~SamePerson(v"A",v"B")).where(weight = 1.0, isSquared = true)
 
     println(m)
 
@@ -99,8 +101,8 @@ sealed trait ExampleCommons {
 
     val dir = args(0)
 
-    val networkData = readFile(dir + "sn_network.txt").map{case(i1,i2) => id(i1) -> id(i2)}
-    val knowsData = readFile(dir + "sn_knows.txt").map{case(i1,i2) => id(i1) -> id(i2)}
+    val networkData = readFile(dir + "sn_network.txt").collect{case(i1,i2) => id(i1) -> id(i2)}
+    val knowsData = readFile(dir + "sn_knows.txt").collect{case(i1,i2)  => id(i1) -> id(i2)}
 
     networkData foreach { case(id1, id2) => Network.load(evidencePart)(id1, id2)}
     knowsData foreach { case(id1, id2) => Knows.load(evidencePart)(id1, id2)}
@@ -131,15 +133,23 @@ object SamePersonExample extends ExampleCommons {
 
     val groundings = Queries.getAllAtoms(db, SamePerson).asScala
 
+    val wrt = new BufferedWriter(new FileWriter("newOut"))
     groundings.toSeq.sortBy(-_.getValue) foreach { atom =>
       val Array(a,b) = atom.getArguments
       val ai = extract[RDBMSUniqueIntID](a)
       val bi = extract[RDBMSUniqueIntID](b)
+      //println(ai, bi, atom.getValue)
+      wrt.write("%s\t%s\t%.4f".format(ai, bi, atom.getValue))
+      wrt.newLine
+
       (networkA.toMap.get(ai),  networkB.toMap.get(bi)) match {
         case (Some(n1), Some(n2)) => println(n1, n2, atom.getValue)
         case otw => ()
       }
+
     }
+    wrt.flush
+    wrt.close
 
   }
 
@@ -160,7 +170,7 @@ object SamePersonLabeledExample extends ExampleCommons {
 
     val truePart = new Partition(2)
     val truth = readLabelFile(dir + "sn_align.txt")
-    truth.foreach { case(a,b,conf) => SamePerson.loadLabeled(truePart)(id(a),id(b), conf) }
+    truth.foreach { case(a,b,conf) => SamePerson.loadLabeled(truePart)(id(a).asInstanceOf[UniqueID with PartialFunctional],id(b).asInstanceOf[UniqueID with PartialFunctional], conf) }
     val targetSet = Set(SamePerson:StandardPredicate).asJava
     val trueDb = ds.getDatabase(truePart, targetSet)
 
@@ -181,10 +191,13 @@ object SamePersonLabeledExample extends ExampleCommons {
       val Array(a,b) = atom.getArguments
       val ai = extract[RDBMSUniqueIntID](a)
       val bi = extract[RDBMSUniqueIntID](b)
+      println(ai, bi, atom.getValue)
+      /*
       (networkA.toMap.get(ai),  networkB.toMap.get(bi)) match {
         case (Some(n1), Some(n2)) => println(n1, n2, atom.getValue)
         case otw => ()
       }
+      */
     }
   }
 
