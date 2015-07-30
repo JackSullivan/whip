@@ -3,6 +3,9 @@ package so.modernized.whip.psl
 import edu.umd.cs.psl.database.loading.Inserter
 import edu.umd.cs.psl.database.{DataStore, ReadOnlyDatabase}
 import edu.umd.cs.psl.model.kernel.predicateconstraint.{DomainRangeConstraintType, DomainRangeConstraintKernel, SymmetryConstraintKernel}
+import edu.umd.cs.psl.model.kernel.setdefinition.SetDefinitionKernel
+import edu.umd.cs.psl.model.set.aggregator.EntityAggregatorFunction
+import edu.umd.cs.psl.ui.aggregators.AggregateSetEquality
 
 import scala.collection.JavaConverters._
 import scala.reflect.runtime.universe._
@@ -14,8 +17,8 @@ import edu.umd.cs.psl.model.atom.QueryAtom
 import edu.umd.cs.psl.model.formula._
 import edu.umd.cs.psl.model.function.ExternalFunction
 import edu.umd.cs.psl.model.kernel.rule.{CompatibilityRuleKernel, ConstraintRuleKernel}
-import edu.umd.cs.psl.model.predicate.{SpecialPredicate, PredicateFactory}
-import edu.umd.cs.psl.model.set.term.{SetUnion, SetTerm, FormulaSetTerm, VariableSetTerm}
+import edu.umd.cs.psl.model.predicate.{StandardPredicate, SpecialPredicate, PredicateFactory}
+import edu.umd.cs.psl.model.set.term._
 
 import so.modernized.whip.util.union._
 
@@ -84,7 +87,7 @@ object PSLDSL {
   implicit class VariableMethods(val v1:Variable) extends AnyVal {
     def ^(v2:Variable) = new QueryAtom(SpecialPredicate.NonSymmetric, v1, v2)
     def !(v2:Variable) = new QueryAtom(SpecialPredicate.NotEqual, v1, v2)
-    def =:=(v2:Variable) = new QueryAtom(SpecialPredicate.Equal, v1, v2)
+    def ===(v2:Variable) = new QueryAtom(SpecialPredicate.Equal, v1, v2)
   }
 
   private def argType[A : prove[PslType]#containsType](implicit aTpe:TypeTag[A]) = typeOf[A] match {
@@ -160,6 +163,8 @@ object PSLDSL {
       labeledInserter.insertValue(conf, toA(a).asInstanceOf[AnyRef],toB(b).asInstanceOf[AnyRef])
     }
 
+    def set(setName:String=predName + "Set") = new SetPredicate(setName, pred, ds, m)
+
     import R._
     def inverse = if (this.isInstanceOf[Symmetry]) {
       new R[A,B](predName + "__inverse") with Symmetry with Inversion
@@ -176,49 +181,56 @@ object PSLDSL {
     def apply(ts:Term*) = new QueryAtom(pred, ts:_*)
   }
 
-  /*
-  object SetComparisonOps {
-    private var auxVarIdx = 0
-    private def nextAuxId = {
-      val res = auxVarIdx
-      auxVarIdx += 1
-      res
-    }
+  private var auxVarIdx = 0
+  private def nextAuxId = {
+    val res = auxVarIdx
+    auxVarIdx += 1
+    res
+  }
 
-    private def auxVariable = new Variable("aux__" + nextAuxId)
+  private def auxVariable = new Variable("aux__" + nextAuxId)
 
-    def set(v:Variable, path:Seq[R[_,_]]=Seq.empty) = {
-      if (path.isEmpty) {
-        new VariableSetTerm(v, ArgumentType.UniqueID)
-      } else {
-        var v1 = v
-        var v2 = auxVariable
-        val iter = path.iterator
-        val formula = path.map { pred =>
-          val qa = pred(v1, v2)
-          v1 = v2
-          v2 = auxVariable
-          qa
-        }.reduce[Formula](_ & _)
-        new FormulaSetTerm(formula, v2, Set(v).asJava)
+  protected class SetPredicate(predName:String, rootPred:StandardPredicate, ds:DataStore, m:Model) {
+
+    private var agg:EntityAggregatorFunction = new AggregateSetEquality()
+    def aggregator(agg:EntityAggregatorFunction) = {this.agg = agg; this}
+
+    protected type VarWithPath = union[Variable]#or[(Variable, Seq[R[_,_]])]
+
+    private def makeCompoundTerm[V : prove[VarWithPath]#containsType](vwp:V):BasicSetTerm = {
+      vwp match {
+        case v:Variable => makeCompoundTerm(v -> Seq.empty[R[_,_]])
+        case tup:(Variable, Seq[R[_,_]]) => val v = tup._1; val path = tup._2
+          if (path.isEmpty) {
+            new VariableSetTerm(v, ArgumentType.UniqueID)
+          } else {
+            var v1 = v
+            var v2 = auxVariable
+            val formula = path.map { pred =>
+              val qa = pred(v1, v2)
+              v1 = v2
+              v2 = auxVariable
+              qa
+            }.reduce[Formula](_ & _)
+            new FormulaSetTerm(formula, v2, Set(v).asJava)
+          }
       }
     }
 
-    implicit class SetTermMethods(st1:SetTerm) extends AnyVal {
-      def +(st2:SetTerm) = new SetUnion(st1, st2)
+    def apply[V1 : prove[VarWithPath]#containsType, V2:prove[VarWithPath]#containsType](vwp1:V1, vwp2:V2) = {
+      val t1 = makeCompoundTerm(vwp1)
+      val t2 = makeCompoundTerm(vwp2)
 
-      def setEquality(st2:SetTerm)(implicit ds:DataStore, m:Model) = {
-        val predName:String = "setEquality__" + nextAuxId
-        val (variables, argTypes) = st2.getAnchorVariables(st1.getAnchorVariables(new VariableTypeMap)).asScala.toSeq.sortBy(_._1.getName).unzip
-        val auxPred = PredicateFactory.getFactory.createStandardPredicate(predName, argTypes:_*)
-        ds.registerPredicate(auxPred)
-        // todo actually setting this up needs access to some other predicate from somewhere
-        //m.addKernel(new SetDefinitionKernel(auxPred, st1, st2, variables, , new AggregateSetEquality))
-        auxPred(variables)
-      }
+      val (variables, argTypes) = t2.getAnchorVariables(t1.getAnchorVariables(new VariableTypeMap))
+        .asScala.toSeq.sortBy(_._1.getName).unzip
+
+      val auxPred = PredicateFactory.getFactory.createStandardPredicate(predName, argTypes:_*)
+      ds.registerPredicate(auxPred)
+
+      m addKernel new SetDefinitionKernel(auxPred, t1, t2, variables.toArray, rootPred, agg)
+      new QueryAtom(auxPred, variables:_*)
     }
   }
-  */
 
 }
 
