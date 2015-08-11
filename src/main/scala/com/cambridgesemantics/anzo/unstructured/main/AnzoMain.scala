@@ -1,16 +1,10 @@
 package com.cambridgesemantics.anzo.unstructured.main
 
-import java.util.Properties
+import org.joda.time.DateTime
 import org.openanzo.client.{AnzoClientDictionary, AnzoClientConfigurationFactory, AnzoClient}
-import org.openanzo.combus.{CombusDictionary, CombusProperties}
-import org.openanzo.services.ServicesProperties
 import com.cambridgesemantics.anzo.utilityservices.common.EncodingUtils
 import scala.collection.JavaConverters._
 import org.openanzo.test.AbstractTest
-import org.openanzo.glitter.query.PatternSolution
-import org.openanzo.rdf.{Variable, BlankNode, Literal, MemTypedLiteral, StoredTypedLiteral}
-import com.cambridgesemantics.anzo.datasource.bigdata.BDTypedLiteral
-import org.openanzo.rdf.vocabulary.XMLSchema
 import org.openanzo.rdf.URI
 import so.modernized.whip.sparql._
 
@@ -25,70 +19,11 @@ case class UriContainer(get:URI) extends ValueContainer[URI]
 
 object AnzoMain {
 
-  def typeLit(lit:Literal) = {
-    println(lit)
-    val dataType = lit match {
-      case bd:BDTypedLiteral => bd.getDatatypeURI
-      case mem:MemTypedLiteral => mem.getDatatype
-      case str:StoredTypedLiteral => str.getDatatypeURI
-    }
-    println(dataType)
-    val cont = dataType match {
-      case XMLSchema.STRING => StringContainer(lit.getNativeValue.asInstanceOf[String])
-      case XMLSchema.BOOLEAN => BooleanContainer(lit.getNativeValue.asInstanceOf[java.lang.Boolean].booleanValue())
-      case XMLSchema.INTEGER => IntContainer(lit.getNativeValue.asInstanceOf[java.lang.Integer].intValue())
-      case _ => throw new Error(dataType.toString())
-    }
-    cont.asInstanceOf[ValueContainer[_]]
-  }
-
-  /*
-  lit match {
-  case bool if lit.isBoolean()  => bool.getNativeValue.asInstanceOf[java.lang.Boolean].booleanValue
-  case date if lit.isDateTime() => date.getNativeValue.asInstanceOf[java.util.Date]
-  case num  if lit.isNumeric()  => num.getNativeValue.asInstanceOf
-  case str  if lit.isString()   => str.getNativeValue.asInstanceOf[String]
-}
-*
-*/
-
-  /*
-  def clientConf(username:String, password:String) = {
-    val properties = new Properties
-    CombusProperties.setHost(properties, "localhost")
-    CombusProperties.setPort(properties, 8946)
-    CombusProperties.setUseSsl(properties, false)
-    ServicesProperties.setUser(properties, "default")
-    ServicesProperties.setPassword(properties, "123")
-    properties.put("http.port", "8946")
-
-    val configGraph = AnzoClientConfigurationFactory.createJMSConfiguration(username, password, CombusProperties.getHost(properties), CombusProperties.getPort(properties), CombusProperties.getUseSsl(properties))
-    AnzoClientDictionary.setUseCometd(configGraph, false)
-    CombusDictionary.setUseSsl(configGraph, false)
-    configGraph.put("http.port", "8946")
-    ServicesProperties.setTimeout(configGraph, 9500000)
-    AnzoClientConfigurationFactory.configureNonPersistedClient(configGraph)
-    configGraph
-  }
-  */
-
   object T extends AbstractTest() {
     def conf = getSystemClientConfiguration
   }
 
-  def resultMap(sol:PatternSolution) = (0 until sol.size()).map { idx =>
-    val bind = sol.getBinding(idx) match {
-      case v:Variable => v.getName
-      case bn:BlankNode => bn.getLabel
-    }
-    val value = sol.getBinding(bind) match {
-      case lit:Literal => typeLit(lit)
-      case uri:URI => UriContainer(uri)
-    }
-    bind -> value.asInstanceOf[ValueContainer[_]]
-  }
-
-  def movie(anzo:AnzoClient) {
+  def movie(anzo: AnzoClient) {
     val dataset = EncodingUtils.uri("http://cambridgesemantics.com/datasets/film")
 
     val query = """PREFIX film: <http://cambridgesemantics.com/ontologies/2009/08/Film#>
@@ -100,11 +35,11 @@ object AnzoMain {
                   |  ?movie film:ranking ?rank .
                   |}""".stripMargin
     println(query)
-    anzo.serverQuery(null, null, Set(dataset).asJava, query).getSelectResults.asScala.take(5).foreach (res => println(resultMap(res)))
+    anzo.serverQuery(null, null, Set(dataset).asJava, query).getSelectResults.asScala.take(5) foreach println
 
   }
 
-  def movieOnt(anzo:AnzoClient) = {
+  def movieOnt(anzo: AnzoClient) = {
     val dataset = EncodingUtils.uri("http://cambridgesemantics.com/datasets/Film")
     val ont = EncodingUtils.uri("http://cambridgesemantics.com/ontologies/2009/08/Film_frame")
     val reg = EncodingUtils.uri("http://cambridgesemantics.com/registries/Ontologies")
@@ -122,9 +57,9 @@ object AnzoMain {
     res
   }
 
-  case class Field(range:URI, property:URI)
+  case class Field(range: URI, property: URI)
 
-  def generalOnt(anzo:AnzoClient, ont:String, datasets:Set[String]) = {
+  def generalOnt(anzo: AnzoClient, ont: String, datasets: Set[String]) = {
     val dataset = EncodingUtils.uri("http://cambridgesemantics.com/semanticServices/OntologyService#Frames")
 
     val q = """PREFIX frame: <http://cambridgesemantics.com/ontologies/2008/07/OntologyService#>
@@ -136,7 +71,9 @@ object AnzoMain {
               |  ?cls rdfs:label ?label .
               |}""".stripMargin.format(ont)
     println(q)
-    val classUris = anzo.serverQuery(null, null, Set(dataset).asJava, q).getSelectResults.asScala.map{ _.single[URI]}
+    val classUris = anzo.serverQuery(null, null, Set(dataset).asJava, q).getSelectResults.asScala.map {
+      _.single[URI]
+    }
     val classQuery = """PREFIX frame: <http://cambridgesemantics.com/ontologies/2008/07/OntologyService#>
                        |PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
                        |SELECT ?ontProp ?range
@@ -150,16 +87,16 @@ object AnzoMain {
     val (actorUri, af) = res.head
     val actorFields = af.init
     val fields = actorFields.indices.map("?field" + _).mkString(" ")
-    val fieldQueryPart = actorFields.zipWithIndex.map{case ((field, _), idx) => s"\tOPTIONAL {?actor <$field> ?field$idx .}"}.mkString("\n")
+    val fieldQueryPart = actorFields.zipWithIndex.map { case ((field, _), idx) => s"\tOPTIONAL {?actor <$field> ?field$idx .}" }.mkString("\n")
     val actorSlug = "<" + actorUri + ">"
     val genericQuery = s"PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\nSELECT ?actor $fields \nWHERE {\n\t?actor rdf:type $actorSlug .\n$fieldQueryPart\n}"
     println(genericQuery)
     val res1 = anzo.serverQuery(null, null, datasets.map(EncodingUtils.uri).asJava, genericQuery).getSelectResults.asScala.head
-    res1.extract { r => (r[URI], r[URI], r[String], r[java.util.Date], r[String], r[String]) }
+    res1.extract { r => (r[URI], r[URI], r[String], r[DateTime], r[String], r[String]) }
   }
 
 
-  def main(args:Array[String]): Unit = {
+  def main(args: Array[String]): Unit = {
     println("in main")
     val anzo = new AnzoClient(T.conf)
     anzo.connect()
@@ -230,5 +167,6 @@ val query = """PREFIX film: <http://cambridgesemantics.com/ontologies/2009/08/Fi
     println(generalOnt(anzo, "http://cambridgesemantics.com/ontologies/2009/08/Film", Set("http://cambridgesemantics.com/datasets/film")))
     println("Done")
   }
+}
 
 

@@ -77,6 +77,11 @@
       <version>2.8.1</version>
     </dependency>
     <dependency>
+      <groupId>org.joda</groupId>
+      <artifactId>joda-convert</artifactId>
+      <version>1.7</version>
+    </dependency>
+    <dependency>
       <groupId>org.apache.geronimo.specs</groupId>
       <artifactId>geronimo-jms_1.1_spec</artifactId>
       <version>1.1.1</version>
@@ -95,7 +100,6 @@
         </exclusion>
       </exclusions>
     </dependency>
-    <!--
     <dependency>
       <groupId>org.openrdf.sesame</groupId>
       <artifactId>sesame</artifactId>
@@ -115,7 +119,16 @@
         </exclusion>
       </exclusions>
     </dependency>
-    -->
+    <dependency>
+      <groupId>org.openrdf</groupId>
+      <artifactId>openrdf-model</artifactId>
+      <version>1.2.7</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openrdf</groupId>
+      <artifactId>openrdf-util</artifactId>
+      <version>1.2.7</version>
+    </dependency>
     <dependency>
       <groupId>org.openanzo</groupId>
       <artifactId>org.openanzo.ontologies</artifactId>
@@ -182,31 +195,9 @@
       <version>3.5.0-SNAPSHOT</version>
     </dependency>
 
-    <!--
-    inflating: /tmp/clientmvn/org.openanzo.ontologies_3.2.0.201203160049.jar
-    inflating: /tmp/clientmvn/org.openanzo.client_3.2.0.201203160049.jar
-    inflating: /tmp/clientmvn/org.openanzo.datasource_3.2.0.201203160049.jar
-    inflating: /tmp/clientmvn/org.openanzo.rdf_3.2.0.201203160049.jar
-    inflating: /tmp/clientmvn/org.openanzo.exceptions_3.2.0.201203160049.jar
-    inflating: /tmp/clientmvn/org.openanzo.services_3.2.0.201203160049.jar
-    inflating: /tmp/clientmvn/com.cambridgesemantics.anzo.datasource_3.5.0.201507241137.jar
-    inflating: /tmp/clientmvn/com.cambridgesemantics.anzo.licensemanager_3.5.0.201507241137.jar
-    inflating: /tmp/clientmvn/org.openanzo.analysis_3.5.0.201507241137.jar
-    inflating: /tmp/clientmvn/org.openanzo.client_3.5.0.201507241137.jar
-    inflating: /tmp/clientmvn/org.openanzo.combus_3.5.0.201507241137.jar
-    inflating: /tmp/clientmvn/org.openanzo.datasource_3.5.0.201507241137.jar
-    inflating: /tmp/clientmvn/org.openanzo.exceptions_3.5.0.201507241137.jar
-    inflating: /tmp/clientmvn/org.openanzo.ontologies_3.5.0.201507241137.jar
-    inflating: /tmp/clientmvn/org.openanzo.rdf_3.5.0.201507241137.jar
-    inflating: /tmp/clientmvn/org.openanzo.services_3.5.0.201507241137.jar
-    -->
-
-    <!-- Test -->
   </dependencies>
 
   <build>
-    <sourceDirectory>src/main/scala</sourceDirectory>
-    <testSourceDirectory>src/test/scala</testSourceDirectory>
     <plugins>
       <plugin>
         <!-- see http://davidb.github.com/scala-maven-plugin -->
