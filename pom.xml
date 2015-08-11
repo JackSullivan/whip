@@ -71,6 +71,135 @@
       <artifactId>psl-core</artifactId>
       <version>1.2-SNAPSHOT</version>
     </dependency>
+    <dependency>
+      <groupId>joda-time</groupId>
+      <artifactId>joda-time</artifactId>
+      <version>2.8.1</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.geronimo.specs</groupId>
+      <artifactId>geronimo-jms_1.1_spec</artifactId>
+      <version>1.1.1</version>
+      <exclusions>
+        <exclusion>
+          <groupId>com.sun.jmx</groupId>
+          <artifactId>jmxri</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.sun.jdmk</groupId>
+          <artifactId>jmxtools</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>javax.jms</groupId>
+          <artifactId>jms</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <!--
+    <dependency>
+      <groupId>org.openrdf.sesame</groupId>
+      <artifactId>sesame</artifactId>
+      <version>2.7.13</version>
+      <exclusions>
+        <exclusion>
+          <groupId>com.sun.jmx</groupId>
+          <artifactId>jmxri</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.sun.jdmk</groupId>
+          <artifactId>jmxtools</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>javax.jms</groupId>
+          <artifactId>jms</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    -->
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.ontologies</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.client</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.datasource</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.rdf</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.exceptions</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.services</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>com.cambridgesemantics.anzo</groupId>
+      <artifactId>com.cambridgesemantics.anzo.datasource</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>com.cambridgesemantics.anzo</groupId>
+      <artifactId>com.cambridgesemantics.anzo.licensemanager</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.analysis</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.client</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.combus</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>com.cambridgesemantics.anzo</groupId>
+      <artifactId>com.cambridgesemantics.anzo.utilityservices</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>com.cambridgesemantics.anzo</groupId>
+      <artifactId>com.cambridgesemantics.anzo.datasource.bigdata</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+
+    <!--
+    inflating: /tmp/clientmvn/org.openanzo.ontologies_3.2.0.201203160049.jar
+    inflating: /tmp/clientmvn/org.openanzo.client_3.2.0.201203160049.jar
+    inflating: /tmp/clientmvn/org.openanzo.datasource_3.2.0.201203160049.jar
+    inflating: /tmp/clientmvn/org.openanzo.rdf_3.2.0.201203160049.jar
+    inflating: /tmp/clientmvn/org.openanzo.exceptions_3.2.0.201203160049.jar
+    inflating: /tmp/clientmvn/org.openanzo.services_3.2.0.201203160049.jar
+    inflating: /tmp/clientmvn/com.cambridgesemantics.anzo.datasource_3.5.0.201507241137.jar
+    inflating: /tmp/clientmvn/com.cambridgesemantics.anzo.licensemanager_3.5.0.201507241137.jar
+    inflating: /tmp/clientmvn/org.openanzo.analysis_3.5.0.201507241137.jar
+    inflating: /tmp/clientmvn/org.openanzo.client_3.5.0.201507241137.jar
+    inflating: /tmp/clientmvn/org.openanzo.combus_3.5.0.201507241137.jar
+    inflating: /tmp/clientmvn/org.openanzo.datasource_3.5.0.201507241137.jar
+    inflating: /tmp/clientmvn/org.openanzo.exceptions_3.5.0.201507241137.jar
+    inflating: /tmp/clientmvn/org.openanzo.ontologies_3.5.0.201507241137.jar
+    inflating: /tmp/clientmvn/org.openanzo.rdf_3.5.0.201507241137.jar
+    inflating: /tmp/clientmvn/org.openanzo.services_3.5.0.201507241137.jar
+    -->
 
     <!-- Test -->
   </dependencies>

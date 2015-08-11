@@ -1,5 +1,8 @@
 package so.modernized.whip
 
+import org.openanzo.glitter.query.PatternSolution
+import org.openanzo.rdf.URI
+
 import scala.io.Source
 
 /**
@@ -29,3 +32,10 @@ object LoadPlaces {
 case class Coords(lat:Double, lon:Double)
 case class Place(names:Set[String], population:Option[Int], coords:Option[Coords])
 
+object Foo {
+  import sparql._
+  val ps:PatternSolution = null
+  case class Bar(name:String, loc:URI)
+
+  ps.extract(r => Bar(r[String], r[URI]))
+}

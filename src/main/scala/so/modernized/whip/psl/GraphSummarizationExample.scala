@@ -1,12 +1,14 @@
 package so.modernized.whip.psl
 
-import PSLDSL._
-import FunctionConversions._
-import edu.umd.cs.psl.model.argument.UniqueID
+import java.sql.Date
+
+import org.apache.spark.sql._
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.SQLContext
+import org.apache.spark.sql.catalyst.expressions.{ScalaUdf, CaseWhen, If, Expression}
+import org.apache.spark.sql.types.{DataType, StructField}
+
+import scala.util.{Failure, Success, Try}
 
 object GraphSummarizationExample {
-
-  //val Exemplar = R[UniqueID, UniqueID]("Exemplar")
-  //val Link = R[UniqueID, UniqueID]("Link")
-
 }
