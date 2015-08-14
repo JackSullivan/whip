@@ -1,21 +1,24 @@
 package com.cambridgesemantics.anzo.unstructured.main
 
 import org.joda.time.DateTime
-import org.openanzo.client.{AnzoClientDictionary, AnzoClientConfigurationFactory, AnzoClient}
+import org.openanzo.client.AnzoClient
 import com.cambridgesemantics.anzo.utilityservices.common.EncodingUtils
+import org.openanzo.rdf.vocabulary.{XMLSchema, RDF}
 import scala.collection.JavaConverters._
 import org.openanzo.test.AbstractTest
-import org.openanzo.rdf.URI
+import org.openanzo.rdf.{MemURI, Value, URI}
 import so.modernized.whip.sparql._
 
-sealed trait ValueContainer[T] {
-  def get:T
+case class RdfObject(val dType:URI, val id:URI, val fields:Map[URI, Value]) {
+  def |+| (that:RdfObject):RdfObject = {
+    require(this.dType == that.dType && this.id == that.id)
+    RdfObject(dType, id, this.fields ++ that.fields)
+  }
 }
-case class StringContainer(get:String) extends ValueContainer[String]
-case class BooleanContainer(get:Boolean) extends ValueContainer[Boolean]
-case class IntContainer(get:Int) extends ValueContainer[Int]
-case class UriContainer(get:URI) extends ValueContainer[URI]
 
+object RdfObject{
+  def smush(objs:Iterable[RdfObject]) = objs.groupBy { case RdfObject(t,i,_) => t -> i}.values.map(_.reduce(_ |+| _))
+}
 
 object AnzoMain {
 
@@ -57,11 +60,14 @@ object AnzoMain {
     res
   }
 
-  case class Field(range: URI, property: URI)
+  type RdfType = URI
+  type RdfId = URI
+  type RdfFieldDesc = (URI, URI)
 
-  def generalOnt(anzo: AnzoClient, ont: String, datasets: Set[String]) = {
-    val dataset = EncodingUtils.uri("http://cambridgesemantics.com/semanticServices/OntologyService#Frames")
 
+  val ontologyService = Set(EncodingUtils.uri("http://cambridgesemantics.com/semanticServices/OntologyService#Frames"))
+
+  def classesFor(ontology:URI)(implicit anzo:AnzoClient):Seq[RdfType] = {
     val q = """PREFIX frame: <http://cambridgesemantics.com/ontologies/2008/07/OntologyService#>
               |PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
               |SELECT ?cls
@@ -69,8 +75,40 @@ object AnzoMain {
               |  ?frm frame:ontology <%s> .
               |  ?frm frame:class ?cls .
               |  ?cls rdfs:label ?label .
-              |}""".stripMargin.format(ont)
-    println(q)
+              |}""".stripMargin.format(ontology)
+    anzo.serverQuery(null, null, ontologyService.asJava, q).getSelectResults.asScala.map(_.single[URI]).toSeq
+  }
+
+  def fieldsFor(rdfClass:RdfType)(implicit anzo:AnzoClient):Seq[RdfFieldDesc] = {
+    val q = """PREFIX frame: <http://cambridgesemantics.com/ontologies/2008/07/OntologyService#>
+              |PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+              |SELECT ?ontProp ?range
+              |WHERE {
+              |  <%s> frame:frameProperty ?field .
+              |  ?field frame:propertyRange ?range .
+              |  ?field frame:ontologyProperty ?ontProp .
+              |}""".stripMargin.format(rdfClass)
+    anzo.serverQuery(null, null, ontologyService.asJava, q).getSelectResults.asScala.map(_.extract(r => r[URI] -> r[URI])).toSeq
+  }
+
+  def recordsFor(rdfClass:RdfType, fieldDescs:Seq[RdfFieldDesc], dataSets:Set[URI])(implicit anzo:AnzoClient) = {
+    val neededFields = fieldDescs.filterNot(_._1 == RDF.TYPE)
+    val fieldLabels = neededFields.indices.map("?field" + _).mkString(" ")
+    val fieldQuery = neededFields.zipWithIndex.map{case ((f,_),idx) => s"\tOPTIONAL { ?id <$f> ?field$idx . }"}.mkString("\n")
+    val q = s"PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\nSELECT ?id $fieldLabels \nWHERE {\n\t?id rdf:type <$rdfClass> .\n$fieldQuery\n}"
+    anzo.serverQuery(null, null, dataSets.asJava, q).getSelectResults.asScala.map { ps =>
+      val id = ps.single[URI]
+      val fieldMap = ps.extract{ i =>
+        neededFields.map(_._1).iterator.zip(i).toMap
+      }
+      new RdfObject(rdfClass, id, fieldMap)
+    }
+  }
+
+  def generalOnt(anzo: AnzoClient, ont: String, datasets: Set[String]) = {
+    val dataset = EncodingUtils.uri("http://cambridgesemantics.com/semanticServices/OntologyService#Frames")
+    val q:String = null
+
     val classUris = anzo.serverQuery(null, null, Set(dataset).asJava, q).getSelectResults.asScala.map {
       _.single[URI]
     }
@@ -85,7 +123,7 @@ object AnzoMain {
     classUris foreach println
     val res = classUris.map(uri => uri -> anzo.serverQuery(null, null, Set(dataset).asJava, classQuery.format(uri)).getSelectResults.asScala.map(_.extract(r => r[URI] -> r[URI])).toSeq)
     val (actorUri, af) = res.head
-    val actorFields = af.init
+    val actorFields = af.filterNot(_._1 == RDF.TYPE)
     val fields = actorFields.indices.map("?field" + _).mkString(" ")
     val fieldQueryPart = actorFields.zipWithIndex.map { case ((field, _), idx) => s"\tOPTIONAL {?actor <$field> ?field$idx .}" }.mkString("\n")
     val actorSlug = "<" + actorUri + ">"
@@ -95,78 +133,39 @@ object AnzoMain {
     res1.extract { r => (r[URI], r[URI], r[String], r[DateTime], r[String], r[String]) }
   }
 
+  implicit class UriStringContext(val sc:StringContext) extends AnyVal {
+    def uri(args:Any*) = EncodingUtils.uri(sc.parts.mkString)
+  }
 
   def main(args: Array[String]): Unit = {
     println("in main")
-    val anzo = new AnzoClient(T.conf)
+    implicit val anzo = new AnzoClient(T.conf)
     anzo.connect()
-    val m1 = EncodingUtils.uri("http://cambridgesemantics.com/demo/film/movie_the_wind_will_carry_us")
-    val m2 = EncodingUtils.uri("http://cambridgesemantics.com/demo/film/movie_finding_nemo")
-    val Movie = EncodingUtils.uri("http://cambridgesemantics.com/ontologies/2009/08/Film#Movie")
-    val filmLDS = EncodingUtils.uri("http://cambridgesemantics.com/linkedDataSets/film")
-    /*
-    anzo.serverFind(null, null, null, m1, m2).asScala.map { statement =>
-      println(statement)
-    }
-    */
+    val filmDataset = Set(uri"http://cambridgesemantics.com/datasets/film")
 
-    val places = Seq("<http://cambridgesemantics.com/City/4C9D113873A24FD6ABC5687C4D320E61>", "<http://cambridgesemantics.com/City/F388B02E08F841A8972C78EBC5863783>", "<http://cambridgesemantics.com/City/1FEBA538942749E9ABA456C04EE70FFC>", "<http://cambridgesemantics.com/City/6DBFCDE99DE94CA1AF831FC6CB6FD14C>")
-      .map("(" + _ + ")").mkString("\n")
-    /*
-      StringBuilder sb = new StringBuilder();
-      sb.append("PREFIX geo: <http://cambridgesemantics.com/ontologies/AnzoGeospatialOntology#>\n\n");
-      sb.append("SELECT ?placeName ?place ?lat ?lon ?pop ");
-      for (int i = 0; i < parentPreds.length; i++) {
-          sb.append("?parent" + i + " ");
-      }
-      sb.append(" WHERE { ");
-      sb.append(" ?place geo:placeName ?placeName . ");
-      sb.append("OPTIONAL { ?place geo:geographicLocation ?loc . ?loc geo:lat ?lat . ?loc geo:long ?lon . } ");
-      sb.append("OPTIONAL { ?place geo:population ?pop . } ");
-      for (int i = 0; i < parentPreds.length; i++) {
-          sb.append("OPTIONAL { ?place " + parentPreds[i] + " ?parent" + i + " . } ");
-      }
-      sb.append(" } ");
-      sb.append(" VALUES (?place){ ");
-      for (URI place : places) {
-          sb.append(" (<" + place + ">) ");
-      }
-      sb.append(" } ");
-      URI geoRegistryUri = EncodingUtils.uri("http://cambridgesemantics.com/dataSets/59815C9130384DA5980F44AC223F74AB/dataset");
-      QueryResults results = pipeline.getAnzoClient(geoDatasource).serverQuery(null, null, Collections.singleton(geoRegistryUri), sb.toString());
-      */
-    val q = """PREFIX geo: <http://cambridgesemantics.com/ontologies/AnzoGeospatialOntology#>
-              |
-              |SELECT ?placeName ?place ?lat ?lon ?pop
-              |WHERE {
-              | ?place geo:placeName ?placeName .
-              |OPTIONAL { ?place geo:geographicLocation ?loc . ?loc geo:lat ?lat . ?loc geo:long ?lon . }
-              |OPTIONAL { ?place geo:population ?pop . } }""".stripMargin
-    /*
-                      |}
-                      | VALUES (?place) {
-                      | %s
-                      |}""".stripMargin.format(places)
-      */
-    /*
-val query = """PREFIX film: <http://cambridgesemantics.com/ontologies/2009/08/Film#>
-    |SELECT ?title ?rank
-    |WHERE {
-    |  ?movie a film:Movie.
-    |  ?movie film:title   ?title.
-    |  ?movie film:ranking ?rank.
-    |}""".stripMargin
-    *
-    */
-    //println(q)
-    //val geoUri = EncodingUtils.uri("http://cambridgesemantics.com/dataSets/59815C9130384DA5980F44AC223F74AB/dataset");
-    //val res = anzo.serverQuery(null, null, Set(geoUri).asJava, q)
-    //res.getSelectResults.asScala.take(5) foreach println
-    //movie(anzo)
-    //movieOnt(anzo)
-    println(generalOnt(anzo, "http://cambridgesemantics.com/ontologies/2009/08/Film", Set("http://cambridgesemantics.com/datasets/film")))
+
+    val predsPerSubj = """PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> SELECT ?t (COUNT(DISTINCT ?p) AS ?preds) { ?s ?p ?o . ?s rdf:type ?t } GROUP BY ?s ORDER BY ?preds"""
+
+    val q = """SELECT  ?p (COUNT(DISTINCT ?o ) AS ?uniq ) (COUNT(?o) AS ?records) { ?s ?p ?o } GROUP BY ?p ORDER BY ?uniq"""
+
+    val averageWidth =
+      """PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+        |SELECT ?t (AVERAGE(?count_preds) AS ?avg_width) {
+        |  SELECT ?p (COUNT (DISTINCT ?p) AS ?count_preds) {
+        |    ?s ?p ?o .
+        |    ?s rdf:type ?t .
+        |  }
+        |  GROUP BY ?s
+        |}
+        |GROUP BY ?t
+        |ORDER BY ?avg_width
+      """.stripMargin
+
+    val res = classesFor(uri"http://cambridgesemantics.com/ontologies/2009/08/Film").flatMap(cUri => recordsFor(cUri, fieldsFor(cUri), filmDataset))
+
+    res foreach println
+
+    //println(generalOnt(anzo, "http://cambridgesemantics.com/ontologies/2009/08/Film", Set("http://cambridgesemantics.com/datasets/film")))
     println("Done")
   }
 }
-
-

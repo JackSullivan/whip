@@ -1,7 +1,7 @@
 package so.modernized.whip
 
 import org.openanzo.glitter.query.PatternSolution
-import org.openanzo.rdf.Value
+import org.openanzo.rdf.{MemVariable, Value}
 
 
 package object sparql {
@@ -24,6 +24,9 @@ package object sparql {
   implicit class PatternSolutionExtras(val ps:PatternSolution) extends AnyVal {
     def single[A](implicit conv:PSConvert[A]) = conv.convert(ps.getValue(0))
     def extract[A](extractor:(PatternSolutionIterator => A)) = extractor(new PatternSolutionIterator(ps))
+    def toMap = (0 until ps.size()).map { idx =>
+      ps.getBinding(idx).asInstanceOf[MemVariable].getName -> ps.getValue(idx)
+    }.toMap
   }
 
 }
