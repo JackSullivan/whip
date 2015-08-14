@@ -1,6 +1,5 @@
 package so.modernized.whip
 
-import cc.factorie.util.Hooks3
 
 import scala.collection.mutable
 import scala.io.Source
@@ -102,7 +101,7 @@ trait CANAL {
   def deltaMeasure(grouping:Seq[IndexedVertexSeq], edgeTypes:Iterable[EdgeType]):Int
   def mu(d:Int, dm1:Int) = (d - dm1).toDouble/dm1
 
-  val mergeHooks = new Hooks3[IndexedVertexSeq, IndexedVertexSeq, IndexedVertexSeq]
+  val mergeHooks = new mutable.ArrayBuffer[(IndexedVertexSeq, IndexedVertexSeq, IndexedVertexSeq) => Unit]()
 
   def run[C](g:Graph, numCats:Int, getOrdered:(Vertex => C))(implicit toOrdered:Ordering[C]) = {
     println("running CANAL")
@@ -136,7 +135,7 @@ trait CANAL {
           val parentIdx = currentIdx
           currentIdx += 1
           val newCluster = m1 ++ (m2, parentIdx)
-          mergeHooks(m1, m2, newCluster)
+          mergeHooks.foreach{_.apply(m1, m2, newCluster)}
           subclusters(parentIdx) = newCluster
           newCluster
       }.toSeq
