@@ -1,0 +1,16 @@
+PREFIX film: <http://cambridgesemantics.com/ontologies/2009/08/Film#>
+SELECT ?p ?o  (DIVIDE(COUNT(?o), ?denom) AS ?prob)
+WHERE {
+  ?s ?p ?o .
+  ?s a film:MoviePerson .
+  {
+    SELECT ?p (COUNT(?o) AS ?denom)
+    WHERE {
+      ?s ?p ?o .
+      ?s a film:MoviePerson .
+    }
+    GROUP BY ?p
+  }
+}
+GROUP BY ?p ?o ?denom
+ORDER BY ?p ?denom

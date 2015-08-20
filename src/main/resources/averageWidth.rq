@@ -1,16 +1,13 @@
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-SELECT ?t (AVG(?count_preds) AS ?avg_width) {
-  SELECT ?p (COUNT (DISTINCT ?p) AS ?count_preds) {
-    ?s ?p ?o .
-    ?s rdf:type ?t .
+SELECT ?t (AVG(?count_preds) AS ?width) 
+WHERE {
+  {
+    SELECT ?t ?s (COUNT (DISTINCT ?p) AS ?count_preds) {
+      ?s ?p ?o .
+      ?s a ?t .
+    }
+    GROUP BY ?t ?s
+    ORDER BY ?count_preds
   }
-  GROUP BY ?s
 }
 GROUP BY ?t
-ORDER BY ?avg_width
-
-  SELECT ?p (COUNT (DISTINCT ?p) AS ?count_preds) {
-    ?s ?p ?o .
-  }
-  GROUP BY ?p
-  ORDER BY ?cound_preds
+ORDER BY ?width

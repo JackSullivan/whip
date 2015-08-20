@@ -1,0 +1,15 @@
+PREFIX film: <http://cambridgesemantics.com/ontologies/2009/08/Film#>
+SELECT MINUS(OFFSET(?o,?m), ?o)
+WHERE {
+  SELECT ?p ?o ?n (INT(SQRT(?n)) AS ?m)
+  WHERE {
+    ?s ?p ?o .
+    {
+      SELECT ?p (COUNT(?o) AS ?n)
+      WHERE {
+        ?s ?p ?o .
+      }
+      GROUP BY ?p
+  }
+  ORDER BY ?p ?o
+}

@@ -1,0 +1,30 @@
+PREFIX frame: <http://cambridgesemantics.com/ontologies/2008/07/OntologyService#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?t ?p ?uniqs ?numRecs ?numSubjs (?numRecs / ?numSubjs AS ?populatedRate)  (IF(?uniqs = ?numRecs, 0.0, DIVIDE(?numRecs, MULTIPLY(?width, ?uniqs))) AS ?prom) 
+WHERE {
+  {
+    SELECT ?t ?p ?numSubjs (COUNT(DISTINCT ?o) AS ?uniqs) (COUNT(?o) AS ?numRecs) ?width
+    WHERE {
+      ?s ?p ?o .
+      ?s rdf:type  ?t .
+      FILTER(?p != rdf:type)
+      {
+        SELECT ?t (AVG(?count_preds) AS ?width) (COUNT (DISTINCT ?s) AS ?numSubjs)
+        WHERE {
+          {
+            SELECT ?t ?s (COUNT (DISTINCT ?p) AS ?count_preds) {
+              ?s ?p ?o .
+              ?s a ?t .
+            }
+            GROUP BY ?t ?s
+            ORDER BY ?count_preds
+          }
+        }
+        GROUP BY ?t
+      }
+    }
+    GROUP BY ?p ?t ?width ?numSubjs
+  }
+}
+ORDER BY ?t DESC(?prom)
