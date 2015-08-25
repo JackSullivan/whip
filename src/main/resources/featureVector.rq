@@ -1,0 +1,9 @@
+SELECT ?p (IF(?o1 = ?o2, 1, 0) AS ?val)
+WHERE {
+  %s ?p ?o1 .
+  %s ?p ?o2 .
+}
+ORDER BY ?p
+VALUES (?p) {
+  %s
+}

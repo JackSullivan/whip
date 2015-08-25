@@ -8,6 +8,8 @@ import scala.io.Source
 /**
  * @author ${user.name}
  */
+
+/*
 object App {
 
   def main(args : Array[String]): Unit = {
@@ -39,3 +41,4 @@ object Foo {
 
   ps.extract(r => Bar(r[String], r[URI]))
 }
+*/

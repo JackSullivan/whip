@@ -16,6 +16,10 @@ case class RdfObject(val dType:URI, val id:URI, val fields:Map[URI, Value]) {
   }
 }
 
+object T extends AbstractTest() {
+  def conf = getSystemClientConfiguration
+}
+
 object RdfObject{
   def smush(objs:Iterable[RdfObject]) = objs.groupBy { case RdfObject(t,i,_) => t -> i}.values.map(_.reduce(_ |+| _))
 }

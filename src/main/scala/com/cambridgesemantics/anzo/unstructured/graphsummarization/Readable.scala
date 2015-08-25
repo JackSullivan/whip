@@ -14,14 +14,18 @@ object Readable {
 
   implicit object BuffReadable extends Readable[BufferedReader] {
     def readLines(rdr:BufferedReader) = new Iterator[String] {
-      private var currentLine = rdr.readLine()
-      override def hasNext = currentLine == null
+      private var nextLine = rdr.readLine()
 
-      override def next() = {
-        val res = currentLine
-        currentLine = rdr.readLine()
+      def next() = {
+        val res = nextLine
+        nextLine = rdr.readLine()
+        if(nextLine == null) {
+          rdr.close()
+        }
         res
       }
+
+      def hasNext = nextLine != null
     }
   }
 
@@ -30,15 +34,15 @@ object Readable {
   }
 
   implicit object ISReadable extends Readable[InputStream] {
-    def readLines(is:InputStream):Iterator[String] = Readable.readLines(new InputStreamReader(is))
+    def readLines(is:InputStream):Iterator[String] = Readable.readLines(new InputStreamReader(is).asInstanceOf[Reader])
   }
 
   implicit object FileReadable extends Readable[File] {
-    def readLines(f:File):Iterator[String] = Readable.readLines(new FileReader(f))
+    def readLines(f:File):Iterator[String] = Readable.readLines(new FileReader(f).asInstanceOf[Reader])
   }
 
   implicit object FilenameReadable extends Readable[String] {
-    def readLines(fn:String):Iterator[String] = Readable.readLines(new FileReader(fn))
+    def readLines(fn:String):Iterator[String] = Readable.readLines(new FileReader(fn).asInstanceOf[Reader])
   }
 
   implicit object URLReadable extends Readable[URL] {

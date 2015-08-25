@@ -1,28 +1,27 @@
-PREFIX film: <http://cambridgesemantics.com/ontologies/2009/08/Film#>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-SELECT ?p1 ?p2 (SUM(IF(?prob = 0, 0, MULTIPLY(LOG(?prob,2), -?prob))) AS ?ent)
+SELECT ?cls1 ?cls2 ?p1 ?p2 (SUM(IF(?prob = 0, 0, MULTIPLY(LOG(?prob,2), -?prob))) AS ?ent) 
 WHERE {
   {
-    SELECT ?p1 ?p2 ?o1 ?o2 (DIVIDE(COUNT(?o1), ?denom) AS ?prob) 
+    SELECT ?cls1 ?cls2 ?p1 ?p2 ?o1 ?o2 (DIVIDE(COUNT(DISTINCT ?s), ?denom) AS ?prob)
     WHERE {
       ?s ?p1 ?o1 .
       ?s ?p2 ?o2 .
       {
-        SELECT ?p1 ?p2 (COUNT(?o1) AS ?denom)
+        SELECT ?cls1 ?cls2 ?p1 ?p2 (COUNT(DISTINCT ?s) AS ?denom)
         WHERE {
           ?s ?p1 ?o1 .
           ?s ?p2 ?o2 .
+          ?s a ?cls1 .
+          ?s a ?cls2 .
           FILTER(STR(?p1) > STR(?p2)) .
-          FILTER(?p1 != ?p2) .
-          FILTER(?p1 != rdf:type) .
-          FILTER(?p2 != rdf:type) .
-          ?s a film:MoviePerson .
         }
-        GROUP BY ?p1 ?p2
+        GROUP BY ?cls1 ?cls2 ?p1 ?p2
+        VALUES (?cls1 ?p1 ?cls2 ?p2) {
+        %s
+        }
       }
     }
-    GROUP BY ?p1 ?p2 ?o1 ?o2 ?denom
+    GROUP BY ?cls1 ?cls2 ?p1 ?p2 ?o1 ?o2 ?denom
   }
 }
-GROUP BY ?p1 ?p2
+GROUP BY ?cls1 ?cls2 ?p1 ?p2
 ORDER BY ?ent

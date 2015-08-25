@@ -4,14 +4,15 @@ import com.cambridgesemantics.anzo.utilityservices.common.EncodingUtils
 import org.openanzo.glitter.query.PatternSolution
 import org.openanzo.rdf.{MemVariable, Value}
 
+import scala.annotation.tailrec
+
 package object graphsummarization {
 
-
-  implicit class MapExtras[K,V1](val m1:Map[K,V1]) extends AnyVal {
-    def |+|[V,V2](m2:Map[K,V2])(implicit combiner:(V1, V2) => V):Map[K,V] = {
-      require (m1.keySet == m2.keySet)
-      m1.keySet.map { k =>
-        k -> combiner(m1(k), m2(k))
+  
+  implicit class MapExtras[K,V1](m1:Map[K,V1]) {
+    def |+|[V,V2](m2:Map[K,V2])(implicit combiner:(Option[V1], Option[V2]) => V):Map[K,V] = {
+      (m1.keySet ++ m2.keySet).map { k =>
+        k -> combiner(m1.get(k), m2.get(k))
       }.toMap
     }
   }
@@ -26,5 +27,14 @@ package object graphsummarization {
     def toMap = (0 until ps.size()).map { idx =>
       ps.getBinding(idx).asInstanceOf[MemVariable].getName -> ps.getValue(idx)
     }.toMap
+  }
+
+  def pairs[A](as:Iterable[A]):List[(A, A)] = {
+    @tailrec
+    def pairsHelper(build:List[(A, A)], xs:List[A]):List[(A, A)] = xs match {
+      case x :: rest => pairsHelper(build ::: rest.map(x -> _), rest)
+      case Nil => build
+    }
+    pairsHelper(List.empty[(A, A)], as.toList)
   }
 }
