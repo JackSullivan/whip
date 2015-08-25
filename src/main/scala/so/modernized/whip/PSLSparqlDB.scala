@@ -4,7 +4,7 @@ import java.util.{Set => JSet}
 import java.net.{URI => JURI}
 
 import com.cambridgesemantics.anzo.unstructured.graphsummarization.PatternSolutionExtras
-import com.cambridgesemantics.anzo.unstructured.graphsummarization.XMLUnapplicable.{XMLInt, XMLDouble, XMLString, XMLURI}
+import com.cambridgesemantics.anzo.unstructured.graphsummarization.XMLUnapplicable._
 import so.modernized.psl_scala.primitives.PSLUnapplicable
 import so.modernized.psl_scala.primitives.PSLUnapplicable.{PSLInt, PSLDouble, PSLString}
 import so.modernized.whip.URIUniqueId._
@@ -21,7 +21,7 @@ import edu.umd.cs.psl.model.atom._
 import edu.umd.cs.psl.model.predicate.{SpecialPredicate, FunctionalPredicate, Predicate, StandardPredicate}
 
 import org.openanzo.client.IAnzoClient
-import org.openanzo.rdf.{URI => AnzoURI, Value}
+import org.openanzo.rdf.{URI => AnzoURI, Statement, Value}
 
 object PSLVar {
   def unapply(t:Term) = t match {
@@ -192,10 +192,22 @@ class PSLSparqlDB(private val datastore:PSLSparqlDS) extends Database {
 
   override def close() {/*noOp*/}
 
-  override def isClosed(predicate: StandardPredicate): Boolean = ???
+  override def isClosed(predicate: StandardPredicate) = target contains predicate
 
   override def getAtomCache = cache
 
-  override def commit(atom: RandomVariableAtom): Unit = ???
+  override def commit(atom: RandomVariableAtom): Unit = {
+    require(atom.getArity == 2)
+    val p = EncodingUtils.uri(atom.getPredicate.getName)
+    atom.getArguments match {
+      case Array(PSLURI(s), PSLURI(o)) =>
+        val stmt = new Statement(s, p, o)
+        val stmtVal = new Statement(s, EncodingUtils.uri(p.toString +"_value"), xmlWrap(atom.getValue))
+        val stmtConf = new Statement(s, EncodingUtils.uri(p.toString +"_confidence"), xmlWrap(atom.getConfidenceValue))
+        anzo.add(stmt, stmtVal, stmtConf)
+        anzo.commit()
+      case otw => ???
+    }
+  }
 }
 

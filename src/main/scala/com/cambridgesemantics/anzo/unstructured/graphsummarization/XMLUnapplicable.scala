@@ -93,6 +93,7 @@ object XMLUnapplicable {
       case _ => None
     }
   }
+  def xmlWrap[A : XMLUnapplicable](a:A):Value = MemTypedLiteral.create(a)
 }
 
 
