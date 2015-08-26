@@ -1,4 +1,4 @@
-package com.cambridgesemantics.anzo.unstructured.graphsummarization
+package so.modernized.whip.util
 
 import java.io._
 import java.net.URL

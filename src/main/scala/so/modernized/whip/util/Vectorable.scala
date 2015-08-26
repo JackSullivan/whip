@@ -1,4 +1,4 @@
-package com.cambridgesemantics.anzo.unstructured.graphsummarization
+package so.modernized.whip.util
 
 trait Vectorable {
 

@@ -1,18 +1,15 @@
 package com.cambridgesemantics.anzo.unstructured.graphsummarization
 
+import so.modernized.whip.util._
 import Readable._
 import XMLUnapplicable._
-import edu.umd.cs.psl.database.ReadOnlyDatabase
-import edu.umd.cs.psl.model.argument.{UniqueID, GroundTerm, ArgumentType}
-import edu.umd.cs.psl.model.function.ExternalFunction
 import org.openanzo.test.AbstractTest
 import org.openanzo.client.{IAnzoClient, AnzoClient}
 import org.openanzo.rdf.vocabulary.XMLSchema
 import org.openanzo.rdf.{URI => AnzoURI}
-//import so.modernized.whip.{PSLSparqlDB, URIUniqueId}
+
 import scala.collection.JavaConverters._
 import scala.collection.mutable
-import VectorOps._
 
 object T extends AbstractTest {
   val conf = getSystemClientConfiguration

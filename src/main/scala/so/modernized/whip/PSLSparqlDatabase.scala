@@ -5,8 +5,8 @@ import java.net.{URI => JURI}
 
 import com.cambridgesemantics.anzo.unstructured.graphsummarization.PatternSolutionExtras
 import com.cambridgesemantics.anzo.unstructured.graphsummarization.XMLUnapplicable._
-import so.modernized.psl_scala.primitives.PSLUnapplicable
-import so.modernized.psl_scala.primitives.PSLUnapplicable.{PSLInt, PSLDouble, PSLString}
+import so.modernized.psl_scala.primitives.PSLUnapplicable._
+import so.modernized.psl_scala.primitives.{PSLUnapplicable, PSLVar}
 import so.modernized.whip.URIUniqueId._
 
 import scala.util.{Failure, Success, Try}
@@ -22,13 +22,6 @@ import edu.umd.cs.psl.model.predicate.{SpecialPredicate, FunctionalPredicate, Pr
 
 import org.openanzo.client.IAnzoClient
 import org.openanzo.rdf.{URI => AnzoURI, Statement, Value}
-
-object PSLVar {
-  def unapply(t:Term) = t match {
-    case v:Variable => Some(v)
-    case _ => None
-  }
-}
 
 object URIUniqueId {
   implicit  object PSLURI extends PSLUnapplicable[AnzoURI] {
@@ -69,7 +62,7 @@ class SparqlResultList(val arity:Int, varPos:Map[Variable, Int]) extends mutable
   override def getArity = arity
 }
 
-class PSLSparqlDS(protected[whip] val anzo:IAnzoClient, keyFields:Set[AnzoURI]) extends DataStore {
+class PSLSparqlDataStore(protected[whip] val anzo:IAnzoClient, keyFields:Set[AnzoURI]) extends DataStore {
   protected[whip] val observedPredicates = mutable.HashMap[AnzoURI, StandardPredicate]()
   protected[whip] val targetPredicates = mutable.HashMap[AnzoURI, StandardPredicate]()
 
@@ -91,6 +84,8 @@ class PSLSparqlDS(protected[whip] val anzo:IAnzoClient, keyFields:Set[AnzoURI]) 
     case otw => throw new IllegalArgumentException("Expected a uri or uri string, received " + otw.toString)
   }
 
+  def getDatabase(datasets:Set[AnzoURI], ontology:AnzoURI=null) = new PSLSparqlDatabase(this, datasets, ontology)
+
   override def getUpdater(predicate: StandardPredicate, partition: Partition): Updater = ???
   override def getInserter(predicate: StandardPredicate, partition: Partition): Inserter = ???
   override def deletePartition(partition: Partition): Int = ???
@@ -100,12 +95,11 @@ class PSLSparqlDS(protected[whip] val anzo:IAnzoClient, keyFields:Set[AnzoURI]) 
   override def getNextPartition: Partition = ???
 }
 
-class PSLSparqlDB(private val datastore:PSLSparqlDS) extends Database {
+class PSLSparqlDatabase(private val datastore:PSLSparqlDataStore, private val datasets:Set[AnzoURI], private val ontology:AnzoURI) extends Database {
   private val anzo = datastore.anzo
   private val cache = new AtomCache(this)
   private val observed = datastore.observedPredicates.values.toSet
   private val target = datastore.targetPredicates.values.toSet
-
 
   override def getAtom(p: Predicate, arguments: GroundTerm*) =
     Option(cache.getCachedAtom(new QueryAtom(p, arguments:_*))) match {
@@ -115,7 +109,7 @@ class PSLSparqlDB(private val datastore:PSLSparqlDS) extends Database {
           val p = EncodingUtils.uri(sp.getName).toString
           arguments match {
             case Seq(PSLURI(s), PSLURI(o)) =>
-              val value = if(anzo.serverQuery(null, null, Set.empty[AnzoURI].asJava, s"ASK { <$s> <$p> <$o> }").getAskResults) 1.0 else 0.0
+              val value = if(anzo.serverQuery(null, null, datasets.asJava, s"ASK { <$s> <$p> <$o> }").getAskResults) 1.0 else 0.0
               if(observed contains sp) {
                 cache.instantiateObservedAtom(sp, arguments.toArray, value, Double.NaN)
               } else if(target contains sp) {
@@ -176,7 +170,7 @@ class PSLSparqlDB(private val datastore:PSLSparqlDS) extends Database {
     println(preparedQ)
 
     val res = new SparqlResultList(2, projections.zipWithIndex.toMap)
-    val q = anzo.serverQuery(null, null, Set.empty[AnzoURI].asJava, preparedQ).getSelectResults.asScala.foreach { ps =>
+    val q = anzo.serverQuery(null, null, datasets.asJava, preparedQ).getSelectResults.asScala.foreach { ps =>
       val m = ps.toMap
       res += projections.map(v => sparql2Psl(m(v.getName))).toArray
     }
