@@ -31,8 +31,8 @@ object XMLUnapplicable {
 
   implicit object XMLInt extends XMLUnapplicable[Int] {
     def unapply(v:Value) = v match {
-      case tl:TypedLiteral if tl.getDatatypeURI == XMLSchema.INT => Some(tl.getNativeValue.asInstanceOf[java.lang.Integer].toInt)
-      case tl:TypedLiteral if tl.getDatatypeURI == XMLSchema.INTEGER => Some(tl.getNativeValue.asInstanceOf[java.lang.Integer].toInt)
+      case tl:TypedLiteral if tl.getDatatypeURI == XMLSchema.INT => Some(tl.getNativeValue.asInstanceOf[java.lang.Integer].intValue())
+      case tl:TypedLiteral if tl.getDatatypeURI == XMLSchema.INTEGER => Some(tl.getNativeValue.asInstanceOf[java.math.BigInteger].intValue())
       case _ => None
     }
   }
@@ -40,7 +40,7 @@ object XMLUnapplicable {
   implicit object XMLDouble extends XMLUnapplicable[Double] {
     def unapply(v:Value) = v match {
       case tl:TypedLiteral if tl.getDatatypeURI == XMLSchema.DOUBLE =>
-        Some(tl.getNativeValue.asInstanceOf[java.lang.Double].toDouble)
+        Some(tl.getNativeValue.asInstanceOf[java.lang.Double].doubleValue())
       case tl:TypedLiteral if tl.getDatatypeURI == XMLSchema.DECIMAL =>
         Some(tl.getNativeValue.asInstanceOf[java.math.BigDecimal].doubleValue())
       case _ => None

@@ -6,7 +6,7 @@ import java.net.{URI => JURI}
 import com.cambridgesemantics.anzo.unstructured.graphsummarization.PatternSolutionExtras
 import com.cambridgesemantics.anzo.unstructured.graphsummarization.XMLUnapplicable._
 import so.modernized.psl_scala.primitives.PSLUnapplicable._
-import so.modernized.psl_scala.primitives.{PSLUnapplicable, PSLVar}
+import so.modernized.psl_scala.primitives.PSLVar
 import so.modernized.whip.URIUniqueId._
 
 import scala.util.{Failure, Success, Try}
@@ -23,30 +23,6 @@ import edu.umd.cs.psl.model.predicate.{SpecialPredicate, FunctionalPredicate, Pr
 import org.openanzo.client.IAnzoClient
 import org.openanzo.rdf.{URI => AnzoURI, Statement, Value}
 
-object URIUniqueId {
-  implicit  object PSLURI extends PSLUnapplicable[AnzoURI] {
-    override type T = URIUniqueId
-
-    val argType = ArgumentType.UniqueID
-    def unapply(v: GroundTerm) = v match {
-      case v:URIUniqueId => Some(v.id)
-      case _ => None
-    }
-    def apply(a: AnzoURI) = new URIUniqueId(a)
-  }
-}
-
-class URIUniqueId(val id:AnzoURI) extends UniqueID {
-  override def getInternalID = id
-
-  override def compareTo(o: GroundTerm) = o match {
-    case oUri:URIUniqueId => id compareTo oUri.id
-    case oGt:GroundTerm => getClass.getSimpleName compareTo oGt.getClass.getSimpleName
-  }
-
-  override def toString = id.toString
-  override def hashCode = id.hashCode()
-}
 
 class SparqlResultList(val arity:Int, varPos:Map[Variable, Int]) extends mutable.ArrayBuffer[Array[GroundTerm]] with ResultList {
 

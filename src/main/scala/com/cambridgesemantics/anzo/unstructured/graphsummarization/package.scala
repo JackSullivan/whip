@@ -1,14 +1,9 @@
 package com.cambridgesemantics.anzo.unstructured
 
-import com.cambridgesemantics.anzo.utilityservices.common.EncodingUtils
 import org.openanzo.glitter.query.PatternSolution
 import org.openanzo.rdf.{MemVariable, Value}
 
 package object graphsummarization {
-
-  implicit class UriStringContext(val sc:StringContext) extends AnyVal {
-    def uri(args:Any*) = EncodingUtils.uri(sc.parts.mkString)
-  }
 
   implicit class PatternSolutionExtras(val ps:PatternSolution) extends AnyVal {
     def single[A](implicit conv:XMLUnapplicable[A]) = conv.unapply(ps.getValue(0)).get

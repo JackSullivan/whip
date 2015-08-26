@@ -1,6 +1,16 @@
 package com.cambridgesemantics.anzo.unstructured.graphsummarization
 
+import edu.umd.cs.psl.application.inference.MPEInference
+import edu.umd.cs.psl.config.ConfigManager
+import edu.umd.cs.psl.database.DataStore
+import edu.umd.cs.psl.model.Model
+import edu.umd.cs.psl.util.database.Queries
+import AnzoURIExtras._
+import so.modernized.psl_scala.psl.everything._
+import so.modernized.whip.PSLSparqlDataStore
+import so.modernized.whip.URIUniqueId._
 import so.modernized.whip.util._
+import VectorOps._
 import Readable._
 import XMLUnapplicable._
 import org.openanzo.test.AbstractTest
@@ -52,7 +62,19 @@ trait FeatureExtractor {
       case None => XMLSchema.STRING
     }
     ProminenceStatistics(popRate, prom, range)
-  } 
+  }
+
+  val linkMap = client.serverQuery(null, null, dataSets.asJava, fieldTypeQuery).getSelectResults.asScala.flatMap { ps =>
+    val m = ps.toMap
+    val XMLURI(cls) = m("cls")
+    val XMLURI(ontProp) = m("ontProp")
+    val XMLURI(range) = m("range")
+    if(isLink(range)) {
+      Some(cls -> (ontProp, range))
+    } else {
+      None
+    }
+  }.groupBy(_._1).mapValues(_.map(_._2))
     
   val combMap = client.serverQuery(null, null, dataSets.asJava, promQuery).getSelectResults.asScala.map { ps =>
     val m = ps.toMap
@@ -87,11 +109,13 @@ trait FeatureExtractor {
         Coords(ontClass, k) -> prom
       }
 
+      /*
       fields.collect {case (_, ProminenceStatistics(_,_,fieldType)) if isLink(fieldType) =>
         remainingFields ++= dataMap(fieldType).collect { case (field, ProminenceStatistics(_,prom,_)) if !fields.keySet.contains(field) =>
           Coords(fieldType, field) -> prom
         }
       }
+      */
 
       val toPopulate = math.max(6 - prominentFields.size, 0)
       ontClass -> (remainingFields.filterNot(_._2 == 0.0).sortBy(-_._2).take(toPopulate).map(_._1) ++ prominentFields.keySet.map(f => Coords(ontClass, f)) ++ numericFields.keySet.map(f => Coords(ontClass, f))).toSet
@@ -147,6 +171,8 @@ trait FeatureExtractor {
 }
 
 object FeatureExtractorTest {
+  val exemplarUri = uri"http://graphsummary/exemplar"
+
   def main(args:Array[String]) {
     implicit val anzo = new AnzoClient(T.conf)
     anzo.connect()
@@ -168,32 +194,57 @@ object FeatureExtractorTest {
       }
     }
 
-    //keyFields.head._2 foreach println
-    ext.discreteEntropies(keyFields.head._2)
-    val res = ext.jointEntropies(keyFields.head._2)
+    val weightsMap = keyFields.map { case (cls, coords) =>
+        cls -> ext.discreteEntropies(coords)
+          .map{ case (Coords(_, pred), (_, _, entropyProp)) => pred -> (1- entropyProp)}.toSeq.sortBy(_._1).map(_._2).toArray
+    }
+    val predicatesMap = keyFields.map {case (cls, coords) => cls -> coords.toSeq.map(_.predicate).sorted}
 
-    res foreach println
+    implicit val ds = new PSLSparqlDataStore(anzo, keyFields.values.flatMap(_.map(_.predicate)).toSet)
+    implicit val m = new Model
 
+
+    val exemplar = R[AnzoURI, AnzoURI](exemplarUri.toString, Functional, ArgNone, PredNone)
+    val simFnMap = weightsMap.foreach { case(cls, weights) =>
+      val preds = predicatesMap(cls)
+      val links = ext.linkMap(cls)
+      val similar = f(cls.toString, createSimilarityFn(anzo, Set(fedataset), preds, weights))
+      links.foreach { case (field, value) =>
+        // in the original paper the link feature is symmetric, but in our case they are not
+        //val link = R[AnzoURI, AnzoURI](field.toString, ArgNone, ArgNone, new Symmetry {})
+        val link = R[AnzoURI, AnzoURI](field.toString)
+
+        (exemplar(v"A", v"B") >> similar(v"A", v"B")).where(1.0)
+        (exemplar(v"A", v"B") >> exemplar(v"B", v"B")).where(1.0)
+        (link(v"A", v"B") & link(v"C", v"B") & exemplar(v"A", v"D") >> exemplar(v"C", v"D")).where(1.0)
+        (link(v"A", v"B") & exemplar(v"A", v"C") & exemplar(v"D", v"C") >> link(v"D", v"B")).where(1.0)
+
+        exemplar(v"A", v"B").where(-1)
+      }
+    }
+
+    val db = ds.getDatabase(ext.dataSets)
+
+    val inf = new MPEInference(m, db, ConfigManager.getManager.getBundle(""))
+    inf.mpeInference()
+    inf.close()
+
+    Queries.getAllAtoms(db, exemplar).asScala foreach println
 
     println("done")
   }
-}
-/*
-class OverlapFeatureFunction(val anzo:IAnzoClient, dataSet:AnzoURI, predicates:Seq[AnzoURI], weights:Array[Double]) extends ExternalFunction {
-  override def getValue(db: ReadOnlyDatabase, args: GroundTerm*): Double = {
-    val Seq(id1:URIUniqueId, id2:URIUniqueId) = args
 
-    val featureQuery = slurp(getClass.getResourceAsStream("./featureVector.rq")).format(id1.toString, id2.toString, predicates.map("<" + _ + ">").mkString("\n"))
-    val feats = anzo.serverQuery(null, null, Set(dataSet).asJava, featureQuery).getSelectResults.asScala
-      .zipWithIndex.foldLeft(new Array[Double](predicates.size)) { case (arr,  (ps, idx)) =>
+  private val featureQ = slurp(getClass.getResourceAsStream("./featureVector.rq"))
+
+  def createSimilarityFn(anzo:IAnzoClient, dataSets:Set[AnzoURI], predicates:Seq[AnzoURI], weights:Array[Double]):(AnzoURI, AnzoURI) => Double =
+    {(s1:AnzoURI, s2:AnzoURI) =>
+      val q = featureQ.format(s1, s2, predicates.map("<" + _ + ">").mkString("\n"))
+      val feats = anzo.serverQuery(null, null, dataSets.asJava, q).getSelectResults.asScala
+        .zipWithIndex.foldLeft(new Array[Double](predicates.size)) { case (arr,  (ps, idx)) =>
         arr(idx) = XMLInt.unapply(ps.getBinding("val")).get.toDouble
         arr
+      }
+      // we should be able to do this since feature vector query orders by p, and weights should be ordered by p
+      (feats dot weights)/feats.length
     }
-    feats dot weights
-  }
-
-  val getArity = 2
-
-  val getArgumentTypes = Array(ArgumentType.UniqueID, ArgumentType.UniqueID)
 }
-*/
