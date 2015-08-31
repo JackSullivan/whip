@@ -5,7 +5,6 @@ import java.net.{URI => JURI}
 
 import com.cambridgesemantics.anzo.unstructured.graphsummarization.{SparqlPredicate, NodeSimilarity, PatternSolutionExtras}
 import com.cambridgesemantics.anzo.unstructured.graphsummarization.XMLUnapplicable._
-import org.apache.spark.sql.DataFrame
 import so.modernized.psl_scala.primitives.PSLUnapplicable._
 import so.modernized.psl_scala.primitives.{PSLUnapplicable, PSLVar}
 import so.modernized.whip.URIUniqueId._
@@ -65,12 +64,22 @@ class PSLSparqlDataStore(protected[whip] val anzo:IAnzoClient, keyFields:Set[Anz
   protected[whip] val targetPredicates = mutable.HashMap[AnzoURI, StandardPredicate]()
 
   override def registerPredicate(predicate: StandardPredicate): Unit = {
-    require(predicate.getArity == 2)
-    Try(EncodingUtils.uri(predicate.getName)) match {
-      case Success(uri) if keyFields contains uri => observedPredicates += uri -> predicate
-      case Success(uri) => targetPredicates += uri -> predicate
-      case Failure(f) => throw new IllegalArgumentException("Expected a uri for predicate name, got " + predicate.getName)
+    predicate match {
+      case tp:TypedStandardPredicate[_,_] =>
+        if(keyFields contains tp.uriType) {
+          observedPredicates += tp.uriType -> tp
+        } else {
+          targetPredicates += tp.uriType -> tp
+        }
+      case s:StandardPredicate =>
+        require(predicate.getArity == 2)
+        Try(EncodingUtils.uri(predicate.getName)) match {
+          case Success(uri) if keyFields contains uri => observedPredicates += uri -> predicate
+          case Success(uri) => targetPredicates += uri -> predicate
+          case Failure(f) => throw new IllegalArgumentException("Expected a uri for predicate name, got " + predicate.getName)
+        }
     }
+
   }
 
   override def getRegisteredPredicates: JSet[StandardPredicate] = (observedPredicates.values ++ targetPredicates.values).toSet.asJava
@@ -103,6 +112,17 @@ class PSLSparqlDatabase(private val datastore:PSLSparqlDataStore, private val da
     Option(cache.getCachedAtom(new QueryAtom(p, arguments:_*))) match {
       case Some(res) => res
       case None => p match {
+        case tp:TypedStandardPredicate[_, _] =>
+          val p = tp.uriType
+          val Seq(PSLURI(s), PSLURI(o)) = arguments
+          val value = if(anzo.serverQuery(null, null, datasets.asJava, s"ASK { <$s> <$p> <$o> }").getAskResults) 1.0 else 0.0
+          if(observed contains tp) {
+            cache.instantiateObservedAtom(tp, arguments.toArray, value, Double.NaN)
+          } else if(target contains tp) {
+            cache.instantiateRandomVariableAtom(tp, arguments.toArray, value, Double.NaN)
+          } else {
+            throw new IllegalArgumentException("Expected predicate to be registered as observed or target, but wasn't either")
+          }
         case sp:StandardPredicate =>
           val p = EncodingUtils.uri(sp.getName).toString
           arguments match {
@@ -154,6 +174,15 @@ class PSLSparqlDatabase(private val datastore:PSLSparqlDataStore, private val da
         case sp:TypedStandardPredicate[_,_] =>
           val p = sp.uriType
           a match {
+            case rv:RandomVariableAtom => rv.getArguments match {
+              case Array(PSLURIVar(sv), PSLURIVar(ov)) =>
+                projections += sv
+                projections += ov
+                Seq(s"?$sv a <${sv.uriType}> .",
+                  s"?$ov a <${ov.uriType}> .",
+                  s"?$sv <$p> $ov .").mkString("\n")
+              case otw => throw new IllegalArgumentException("Only binary atoms of URIs and variables are currently supported, received " + otw.toSeq)
+            }
             case obs:ObservedAtom => obs.getArguments match {
               case Array(PSLURI(s), PSLURI(o))   => s"<$s> <$p> <$o> ."
               case Array(PSLURIVar(sv), PSLURI(o))  =>
@@ -166,16 +195,13 @@ class PSLSparqlDatabase(private val datastore:PSLSparqlDataStore, private val da
                 projections += sv
                 projections += ov
                 s"?$sv <$p> ?$ov ."
-              case otw => throw new IllegalArgumentException("Only binary atoms of URIs and variables are currently supported, received " + otw.toSeq)
+              case otw => throw new IllegalArgumentException("Only binary atoms of URIs and variables are currently supported, received " + otw.toSeq + " with " + otw.map(_.getClass).mkString(" ") + " in " + obs)
             }
-            case rv:RandomVariableAtom => rv.getArguments match {
-              case Array(PSLURIVar(sv), PSLURIVar(ov)) =>
+            case qa:QueryAtom => qa.getArguments match {
+              case Array(PSLVar(sv), PSLVar(ov)) =>
                 projections += sv
                 projections += ov
-                Seq(s"?$sv a <${sv.uriType}> .",
-                  s"?$ov a <${ov.uriType}> .",
-                  s"?$sv <$p> $ov .").mkString("\n")
-              case otw => throw new IllegalArgumentException("Only binary atoms of URIs and variables are currently supported, received " + otw.toSeq)
+                s"?$sv <$p> ?$ov ."
             }
           }
         case spq:SparqlPredicate => a.getArguments match {
@@ -191,6 +217,7 @@ class PSLSparqlDatabase(private val datastore:PSLSparqlDataStore, private val da
     val projectionString = projections.map(v => "?" + v.getName).toSet.mkString(" ")
 
     val preparedQ = executeQ.format(projectionString, whereClauses /*+ "\n" + variableNotEqual*/)
+    println(f)
     println(preparedQ)
 
     val res = new SparqlResultList(2, projections.zipWithIndex.toMap)
@@ -198,6 +225,8 @@ class PSLSparqlDatabase(private val datastore:PSLSparqlDataStore, private val da
       val m = ps.toMap
       res += projections.map(v => xml2Psl(m(v.getName))).toArray
     }
+    println(datasets)
+    //res foreach (gt => println(gt.toSeq))
     res
   }
 

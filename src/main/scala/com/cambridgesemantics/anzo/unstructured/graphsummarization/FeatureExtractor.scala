@@ -11,7 +11,7 @@ import edu.umd.cs.psl.util.database.Queries
 import AnzoURIExtras._
 import so.modernized.psl_scala.psl.everything._
 import so.modernized.whip.sparql.QueryIterator
-import so.modernized.whip.{PSLSparqlDatabase, PSLSparqlDataStore}
+import so.modernized.whip.{TypedVariable, TypedStandardPredicate, PSLSparqlDatabase, PSLSparqlDataStore}
 import so.modernized.whip.URIUniqueId._
 import so.modernized.whip.util._
 import VectorOps._
@@ -50,11 +50,11 @@ trait FeatureExtractor {
   val ontologyFrame = uri"http://cambridgesemantics.com/semanticServices/OntologyService#Frames"
 
   val promQuery = slurp(getClass.getResourceAsStream("./calculateProminence.rq"))
-  println(promQuery)
+  //println(promQuery)
 
   val fieldTypeQuery = slurp(getClass.getResourceAsStream("./fieldTypes.rq"))
   .format(ontology.toString)
-  println(fieldTypeQuery)
+  //println(fieldTypeQuery)
 
   implicit def comb(a:Option[(Int, Int, Int, Double, Double)], b:Option[AnzoURI]) = {
     val (popRate, prom) = a match {
@@ -68,7 +68,7 @@ trait FeatureExtractor {
     ProminenceStatistics(popRate, prom, range)
   }
 
-  val linkMap = client.serverQuery(null, null, dataSets.asJava, fieldTypeQuery).getSelectResults.asScala.flatMap { ps =>
+  val linkMap = client.serverQuery(null, null, Set(ontologyFrame).asJava, fieldTypeQuery).getSelectResults.asScala.flatMap { ps =>
     val m = ps.toMap
     val XMLURI(cls) = m("cls")
     val XMLURI(ontProp) = m("ontProp")
@@ -129,7 +129,7 @@ trait FeatureExtractor {
 
   def discreteEntropies(filter:Iterable[Coords]) = {
     val entropyQ = slurp(getClass.getResource("./discreteEntropy.rq")).format(filter.map(_.sparqlValues).mkString("\n"))
-    println(entropyQ)
+    //println(entropyQ)
     val entropies = client.serverQuery(null, null, dataSets.asJava, entropyQ).getSelectResults.asScala.map { ps =>
       val m = ps.toMap
       val XMLURI(cls) = m("cls")
@@ -208,24 +208,31 @@ object FeatureExtractorTest {
     implicit val m = new Model
 
 
-    val exemplar = R[AnzoURI, AnzoURI](exemplarUri.toString, Functional, ArgNone, PredNone)
+    //ext.linkMap foreach println
+
+    val exemplar = new TypedStandardPredicate[AnzoURI, AnzoURI]("exemplar_" + exemplarUri.getLocalName, exemplarUri) //R[AnzoURI, AnzoURI](exemplarUri.toString, Functional, ArgNone, PredNone)
+    ds registerPredicate exemplar
     val simFnMap = weightsMap.foreach { case(cls, weights) =>
       val preds = predicatesMap(cls)
-      val links = ext.linkMap(cls)
-      val similar = f(cls.toString, createSimilarityFn(anzo, Set(fedataset), preds, weights))
+      val links = ext.linkMap.getOrElse(cls, Iterable.empty)
+      val similar = new NodeSimilarity(anzo, Set(fedataset), preds, weights) //f(cls.toString, createSimilarityFn(anzo, Set(fedataset), preds, weights))
+      val A = new TypedVariable("A", cls)
+      val B = new TypedVariable("B", cls)
+      val C = new TypedVariable("C", cls)
+      val D = new TypedVariable("D", cls)
       links.foreach { case (field, value) =>
         // in the original paper the link feature is symmetric, but in our case they are not
         //val link = R[AnzoURI, AnzoURI](field.toString, ArgNone, ArgNone, new Symmetry {})
-        val link = R[AnzoURI, AnzoURI](field.toString)
+        val link = new TypedStandardPredicate[AnzoURI, AnzoURI]("link_" + field.getLocalName, field) //R[AnzoURI, AnzoURI](field.toString)
+        ds registerPredicate link
+        val P = new TypedVariable("P", value)
 
-        (exemplar(v"A", v"B") >> similar(v"A", v"B")).where(1.0)
-        (exemplar(v"A", v"B") >> exemplar(v"B", v"B")).where(1.0)
-        val f = link(v"A", v"B") & link(v"C", v"B") & exemplar(v"A", v"D") >> exemplar(v"C", v"D")
-        f.getDNF
-        (link(v"A", v"B") & link(v"C", v"B") & exemplar(v"A", v"D") >> exemplar(v"C", v"D")).where(1.0)
-        (link(v"A", v"B") & exemplar(v"A", v"C") & exemplar(v"D", v"C") >> link(v"D", v"B")).where(1.0)
+        (exemplar(A, B) >> similar(A, B)).where(1.0)
+        (exemplar(A, B) >> exemplar(B, B)).where(1.0)
+        ((link(A, P) & link(C, P) & exemplar(A, D)) >> exemplar(C, D)).where(1.0)
+        ((link(A, P) & exemplar(A, C) & exemplar(D, C)) >> link(D, P)).where(1.0)
 
-        exemplar(v"A", v"B").where(-1)
+        exemplar(A, B).where(-1)
       }
     }
 
