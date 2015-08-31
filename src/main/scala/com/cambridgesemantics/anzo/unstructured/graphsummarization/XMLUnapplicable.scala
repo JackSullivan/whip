@@ -3,24 +3,26 @@ package com.cambridgesemantics.anzo.unstructured.graphsummarization
 import org.joda.time.DateTime
 import org.openanzo.rdf.vocabulary.XMLSchema
 import org.openanzo.rdf.{URI => AnzoURI, _}
+import so.modernized.psl_scala.primitives.PSLUnapplicable.{PSLInt, PSLDouble, PSLString}
+import so.modernized.whip.URIUniqueId
 
 
-trait XMLUnapplicable[A] { xmlun =>
+trait XMLUnapplicable[A] extends PartialFunction[Value, A] { xmlun =>
   def unapply(v:Value):Option[A]
-  def fn = new PartialFunction[Value, A] {
-    private var lastCheck:Value = null
-    private var lastRes:Option[A] = None
-    def isDefinedAt(x: Value) = {
-      lastCheck = x
-      lastRes = xmlun.unapply(lastCheck)
-      lastRes.isDefined
-    }
-
-    def apply(v1: Value): A = {
-      if(!v1.eq(lastCheck)) isDefinedAt(v1)
-      lastRes.get
-    }
+  private var lastCheck:Value = null
+  private var lastRes:Option[A] = None
+  override def isDefinedAt(x: Value) = {
+    lastCheck = x
+    lastRes = xmlun.unapply(lastCheck)
+    lastRes.isDefined
   }
+
+  override def apply(v1: Value): A = {
+    if(!v1.eq(lastCheck)) isDefinedAt(v1)
+    lastRes.get
+  }
+
+
 }
 
 object XMLUnapplicable {
@@ -94,6 +96,13 @@ object XMLUnapplicable {
     }
   }
   def xmlWrap[A : XMLUnapplicable](a:A):Value = MemTypedLiteral.create(a)
+
+  def xml2Psl(v:Value) = v match {
+    case XMLURI(uri) => new URIUniqueId(uri)
+    case XMLString(str) => PSLString(str)
+    case XMLDouble(dbl) => PSLDouble(dbl)
+    case XMLInt(int) => PSLInt(int)
+  }
 }
 
 

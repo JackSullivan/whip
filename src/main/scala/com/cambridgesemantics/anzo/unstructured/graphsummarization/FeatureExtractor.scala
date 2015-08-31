@@ -1,13 +1,17 @@
 package com.cambridgesemantics.anzo.unstructured.graphsummarization
 
+import com.cambridgesemantics.anzo.utilityservices.common.EncodingUtils
 import edu.umd.cs.psl.application.inference.MPEInference
 import edu.umd.cs.psl.config.ConfigManager
-import edu.umd.cs.psl.database.DataStore
+import edu.umd.cs.psl.database.{ReadOnlyDatabase, DataStore}
 import edu.umd.cs.psl.model.Model
+import edu.umd.cs.psl.model.argument.{ArgumentType, GroundTerm}
+import edu.umd.cs.psl.model.predicate.SpecialPredicate
 import edu.umd.cs.psl.util.database.Queries
 import AnzoURIExtras._
 import so.modernized.psl_scala.psl.everything._
-import so.modernized.whip.PSLSparqlDataStore
+import so.modernized.whip.sparql.QueryIterator
+import so.modernized.whip.{PSLSparqlDatabase, PSLSparqlDataStore}
 import so.modernized.whip.URIUniqueId._
 import so.modernized.whip.util._
 import VectorOps._
@@ -16,7 +20,7 @@ import XMLUnapplicable._
 import org.openanzo.test.AbstractTest
 import org.openanzo.client.{IAnzoClient, AnzoClient}
 import org.openanzo.rdf.vocabulary.XMLSchema
-import org.openanzo.rdf.{URI => AnzoURI}
+import org.openanzo.rdf.{URI => AnzoURI, Statement}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
@@ -216,6 +220,8 @@ object FeatureExtractorTest {
 
         (exemplar(v"A", v"B") >> similar(v"A", v"B")).where(1.0)
         (exemplar(v"A", v"B") >> exemplar(v"B", v"B")).where(1.0)
+        val f = link(v"A", v"B") & link(v"C", v"B") & exemplar(v"A", v"D") >> exemplar(v"C", v"D")
+        f.getDNF
         (link(v"A", v"B") & link(v"C", v"B") & exemplar(v"A", v"D") >> exemplar(v"C", v"D")).where(1.0)
         (link(v"A", v"B") & exemplar(v"A", v"C") & exemplar(v"D", v"C") >> link(v"D", v"B")).where(1.0)
 
@@ -247,4 +253,60 @@ object FeatureExtractorTest {
       // we should be able to do this since feature vector query orders by p, and weights should be ordered by p
       (feats dot weights)/feats.length
     }
+}
+
+trait SparqlPredicate extends SpecialPredicate {
+  var isComputed = false
+  val threshold = 0.5
+  val batchSize = 1000
+  val namedGraph = uri"http://TempPslFunctions"
+  val predicate = EncodingUtils.uri("http://TempPsl" + this.getName)
+  def anzo:IAnzoClient
+  def dataSets:Set[AnzoURI]
+  def precompute(db:PSLSparqlDatabase, sType:AnzoURI, oType:AnzoURI): Unit = {
+
+    val mkQuery = {(cursor:Int, bSize:Int) =>
+      """SELECT ?s1 ?s2
+        |WHERE {
+        | ?s1 a %s .
+        | ?s2 a %s .
+        | FILTER(STR(?s1) > STR(?s2)) .
+        |}
+        |ORDER BY ?s1
+        |OFFSET %d
+        |LIMIT %d
+      """.stripMargin.format(sType, oType, cursor, bSize)
+    }
+    new QueryIterator(anzo, dataSets)(mkQuery) foreach { pss =>
+      val toCreate = pss.par.flatMap{ ps =>
+        val m = ps.toMap
+        val XMLURI(s1) = m("s1")
+        val XMLURI(s2) = m("s2")
+        if(this.computeValue(new ReadOnlyDatabase(db), xml2Psl(s1), xml2Psl(s2)) > threshold) {
+          Some(new Statement(s1, predicate, s2, namedGraph))
+        } else {
+          None
+        }
+      }.seq
+      anzo add toCreate.asJava
+      anzo.commit()
+      anzo.updateRepository(true)
+    }
+    isComputed = true
+  }
+}
+
+class NodeSimilarity(val anzo:IAnzoClient, val dataSets:Set[AnzoURI], predicates:Seq[AnzoURI], weights:Array[Double]) extends SpecialPredicate("#FieldOverlap", Array(ArgumentType.UniqueID, ArgumentType.UniqueID)) with SparqlPredicate {
+  private val featureQ = slurp(getClass.getResourceAsStream("./featureVector.rq"))
+  override def computeValue(db: ReadOnlyDatabase, args: GroundTerm*): Double = {
+    val Seq(PSLURI(s1), PSLURI(s2)) = args
+    val q = featureQ.format(s1, s2, predicates.map("<" + _ + ">").mkString("\n"))
+    val feats = anzo.serverQuery(null, null, dataSets.asJava, q).getSelectResults.asScala
+      .zipWithIndex.foldLeft(new Array[Double](predicates.size)) { case (arr,  (ps, idx)) =>
+      arr(idx) = XMLInt.unapply(ps.getBinding("val")).get.toDouble
+      arr
+    }
+    // we should be able to do this since feature vector query orders by p, and weights should be ordered by p
+    (feats dot weights)/feats.length
+  }
 }
