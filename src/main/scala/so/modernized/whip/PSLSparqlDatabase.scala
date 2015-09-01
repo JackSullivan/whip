@@ -8,6 +8,7 @@ import com.cambridgesemantics.anzo.unstructured.graphsummarization.XMLUnapplicab
 import so.modernized.psl_scala.primitives.PSLUnapplicable._
 import so.modernized.psl_scala.primitives.{PSLUnapplicable, PSLVar}
 import so.modernized.whip.URIUniqueId._
+import so.modernized.whip.sparql.QueryIterator
 import so.modernized.whip.util._
 
 import scala.util.{Failure, Success, Try}
@@ -24,7 +25,7 @@ import edu.umd.cs.psl.model.predicate.{SpecialPredicate, FunctionalPredicate, Pr
 import org.openanzo.client.IAnzoClient
 import org.openanzo.rdf.{URI => AnzoURI, Statement, Value}
 
-class TypedStandardPredicate[A, B](name:String, val uriType:AnzoURI)(implicit aEv:PSLUnapplicable[A], bEv:PSLUnapplicable[B]) extends StandardPredicate(name, Array(aEv.argType, bEv.argType))
+class TypedStandardPredicate[A, B](name:String, val uriType:AnzoURI, val domain:AnzoURI, val range:AnzoURI)(implicit aEv:PSLUnapplicable[A], bEv:PSLUnapplicable[B]) extends StandardPredicate(name, Array(aEv.argType, bEv.argType))
 
 
 /**
@@ -45,10 +46,22 @@ object PSLURIVar {
   }
 }
 
-class SparqlResultList(val arity:Int, varPos:Map[Variable, Int]) extends mutable.ArrayBuffer[Array[GroundTerm]] with ResultList {
+/*
+class LazyResultList(iter:QueryIterator, varPos:Map[Variable, Int], val size:Int) extends ResultList {
+  private val resStream = iter.flatten.toStream
+
+  def get(resultNo: Int, `var`: Variable) = get(resultNo)(varPos(`var`))
+
+  def get(resultNo: Int): Array[GroundTerm] = resStream(resultNo)
+
+  val getArity = 2
+}
+*/
+
+class SparqlResultList(varPos:Map[Variable, Int]) extends mutable.ArrayBuffer[Array[GroundTerm]] with ResultList {
 
   override def +=(elem: Array[GroundTerm]) = {
-    assert(elem.length == arity)
+    assert(elem.length == 2)
     super.+=(elem)
   }
 
@@ -56,33 +69,36 @@ class SparqlResultList(val arity:Int, varPos:Map[Variable, Int]) extends mutable
 
   override def get(resultNo: Int): Array[GroundTerm] = this(resultNo)
 
-  override def getArity = arity
+  val getArity = 2
 }
 
 class PSLSparqlDataStore(protected[whip] val anzo:IAnzoClient, keyFields:Set[AnzoURI]) extends DataStore {
-  protected[whip] val observedPredicates = mutable.HashMap[AnzoURI, StandardPredicate]()
-  protected[whip] val targetPredicates = mutable.HashMap[AnzoURI, StandardPredicate]()
+  protected[whip] val observedPredicates = mutable.HashSet[StandardPredicate]() //mutable.HashMap[AnzoURI, StandardPredicate]()
+  protected[whip] val targetPredicates = mutable.HashSet[StandardPredicate]()
+  protected[whip] val variables = mutable.HashMap[String, TypedVariable]()
 
   override def registerPredicate(predicate: StandardPredicate): Unit = {
     predicate match {
       case tp:TypedStandardPredicate[_,_] =>
         if(keyFields contains tp.uriType) {
-          observedPredicates += tp.uriType -> tp
+          observedPredicates += tp
         } else {
-          targetPredicates += tp.uriType -> tp
+          targetPredicates += tp
         }
       case s:StandardPredicate =>
         require(predicate.getArity == 2)
         Try(EncodingUtils.uri(predicate.getName)) match {
-          case Success(uri) if keyFields contains uri => observedPredicates += uri -> predicate
-          case Success(uri) => targetPredicates += uri -> predicate
+          case Success(uri) if keyFields contains uri => observedPredicates += predicate
+          case Success(uri) => targetPredicates += predicate
           case Failure(f) => throw new IllegalArgumentException("Expected a uri for predicate name, got " + predicate.getName)
         }
     }
 
   }
 
-  override def getRegisteredPredicates: JSet[StandardPredicate] = (observedPredicates.values ++ targetPredicates.values).toSet.asJava
+  def registerTypedVariable(v:TypedVariable): Unit = { variables += v.name -> v }
+
+  override def getRegisteredPredicates: JSet[StandardPredicate] = (observedPredicates ++ targetPredicates).asJava
 
   override def getUniqueID(key: Any): UniqueID = key match {
     case uri:AnzoURI => new URIUniqueId(uri)
@@ -91,7 +107,7 @@ class PSLSparqlDataStore(protected[whip] val anzo:IAnzoClient, keyFields:Set[Anz
     case otw => throw new IllegalArgumentException("Expected a uri or uri string, received " + otw.toString)
   }
 
-  def getDatabase(datasets:Set[AnzoURI], ontology:AnzoURI=null) = new PSLSparqlDatabase(this, datasets, ontology)
+  def getDatabase(datasets:Set[AnzoURI], ontology:AnzoURI=null) = new PSLSparqlDatabase(this, datasets, ontology, variables.toMap)
 
   override def getUpdater(predicate: StandardPredicate, partition: Partition): Updater = ???
   override def getInserter(predicate: StandardPredicate, partition: Partition): Inserter = ???
@@ -102,42 +118,30 @@ class PSLSparqlDataStore(protected[whip] val anzo:IAnzoClient, keyFields:Set[Anz
   override def getNextPartition: Partition = ???
 }
 
-class PSLSparqlDatabase(private val datastore:PSLSparqlDataStore, private val datasets:Set[AnzoURI], private val ontology:AnzoURI) extends Database {
+class PSLSparqlDatabase(private val datastore:PSLSparqlDataStore, private val datasets:Set[AnzoURI], private val ontology:AnzoURI, variableMap:Map[String,TypedVariable]) extends Database {
   private val anzo = datastore.anzo
   private val cache = new AtomCache(this)
-  private val observed = datastore.observedPredicates.values.toSet
-  private val target = datastore.targetPredicates.values.toSet
+  private val observed = datastore.observedPredicates
+  private val target = datastore.targetPredicates
 
-  override def getAtom(p: Predicate, arguments: GroundTerm*) =
+  def getAtom(p:Predicate, arguments:GroundTerm*) =
     Option(cache.getCachedAtom(new QueryAtom(p, arguments:_*))) match {
       case Some(res) => res
       case None => p match {
-        case tp:TypedStandardPredicate[_, _] =>
-          val p = tp.uriType
-          val Seq(PSLURI(s), PSLURI(o)) = arguments
-          val value = if(anzo.serverQuery(null, null, datasets.asJava, s"ASK { <$s> <$p> <$o> }").getAskResults) 1.0 else 0.0
+        case tp:TypedStandardPredicate[_,_] => // TODO should this work for non-typed predicates? nothing else will
+          val Seq(PSLURI(s), PSLURI(o)) = arguments // TODO expand for other options
+          val value = if(anzo.serverQuery(null, null, datasets.asJava, s"ASK { <$s> <${tp.uriType}> <$o> }").getAskResults) 1.0 else 0.0
           if(observed contains tp) {
+            println("generating obs atom for " + (tp, arguments, value))
             cache.instantiateObservedAtom(tp, arguments.toArray, value, Double.NaN)
           } else if(target contains tp) {
+            println("generating rv atom for " + (tp, arguments, value))
             cache.instantiateRandomVariableAtom(tp, arguments.toArray, value, Double.NaN)
           } else {
             throw new IllegalArgumentException("Expected predicate to be registered as observed or target, but wasn't either")
           }
-        case sp:StandardPredicate =>
-          val p = EncodingUtils.uri(sp.getName).toString
-          arguments match {
-            case Seq(PSLURI(s), PSLURI(o)) =>
-              val value = if(anzo.serverQuery(null, null, datasets.asJava, s"ASK { <$s> <$p> <$o> }").getAskResults) 1.0 else 0.0
-              if(observed contains sp) {
-                cache.instantiateObservedAtom(sp, arguments.toArray, value, Double.NaN)
-              } else if(target contains sp) {
-                cache.instantiateRandomVariableAtom(sp, arguments.toArray, value, Double.NaN)
-              } else {
-                throw new IllegalArgumentException("Expected predicate to be registered as observed or target, but wasn't either")
-              }
-            case otw => throw new IllegalArgumentException("Expected a pair of URIs, got " + otw)
-          }
-        case fp:FunctionalPredicate => cache.instantiateObservedAtom(fp, arguments.toArray, fp.computeValue(new ReadOnlyDatabase(this), arguments:_*), Double.NaN)
+        case sp:SparqlPredicate =>
+          cache.instantiateObservedAtom(sp, arguments.toArray, sp.computeValue(new ReadOnlyDatabase(this), arguments:_*), Double.NaN)
       }
     }
 
@@ -153,6 +157,53 @@ class PSLSparqlDatabase(private val datastore:PSLSparqlDataStore, private val da
       | %s
       |}""".stripMargin
 
+  def executeQuery(query:DatabaseQuery) = {
+    val f = query.getFormula
+    val atoms = f.getAtoms(mutable.Set.empty[Atom].asJava).asScala
+
+    val projected = (query.getProjectionSubset.asScala.toSet ++
+      f.collectVariables(new VariableTypeMap).asScala.keySet) --
+      query.getPartialGrounding.asScala.keySet
+
+    val projectedBindings = mutable.ArrayBuffer[Variable]()
+    val whereClauses = atoms.map { a =>
+      (a.getPredicate, a.getArguments) match {
+        case (p:TypedStandardPredicate[_, _], Array(PSLVar(s), PSLVar(o))) if observed contains p =>
+          projectedBindings += s
+          projectedBindings += o
+          s"\t?$s <${p.uriType}> ?$o ."
+        case (p:TypedStandardPredicate[_, _], Array(PSLVar(s), PSLVar(o))) if target contains p =>
+          val (sType, oType) = (s, o) match {
+            case (PSLURIVar(su), PSLURIVar(ou)) => su.uriType -> ou.uriType
+            case _ => p.domain -> p.range
+          }
+          projectedBindings += s
+          projectedBindings += o
+          Seq(s"\t?$s a <$sType> .",
+            s"\t?$o a <$oType> .").mkString("\n")
+        case (sp:SparqlPredicate, Array(PSLVar(s), PSLVar(o))) =>
+          if(!sp.isComputed) {
+            sp.precompute(this)
+          }
+          s"?$s <${sp.predicate}> ?$o ."
+        case (p:StandardPredicate, ts) =>
+          println ("observed " + observed + "\ntarget " + target)
+          throw new IllegalArgumentException("Wasn't expecting " + (p, p.getClass, observed contains p, target contains p, ts.toSeq))
+      }
+    }.mkString("\n")
+    val Q = s"SELECT ${projectedBindings.map(v => "?" + v.getName).toSet.mkString(" ")}\nWHERE {\n$whereClauses\n}"
+    println(f)
+    println(projected)
+    println(Q)
+    val res = new SparqlResultList(projectedBindings.zipWithIndex.toMap)
+    val q = anzo.serverQuery(null, null, datasets.asJava, Q).getSelectResults.asScala.foreach { ps =>
+      val m = ps.toMap
+      res += projectedBindings.map(v => xml2Psl(m(v.getName))).toArray
+    }
+    res
+  }
+
+  /*
   override def executeQuery(query: DatabaseQuery): ResultList = {
     val f = query.getFormula
     val atoms = f.getAtoms(mutable.Set.empty[Atom].asJava).asScala
@@ -197,17 +248,21 @@ class PSLSparqlDatabase(private val datastore:PSLSparqlDataStore, private val da
                 s"?$sv <$p> ?$ov ."
               case otw => throw new IllegalArgumentException("Only binary atoms of URIs and variables are currently supported, received " + otw.toSeq + " with " + otw.map(_.getClass).mkString(" ") + " in " + obs)
             }
-            case qa:QueryAtom => qa.getArguments match {
-              case Array(PSLVar(sv), PSLVar(ov)) =>
-                projections += sv
-                projections += ov
-                s"?$sv <$p> ?$ov ."
-            }
+            case qa:QueryAtom =>
+              val (sv, ov) = qa.getArguments match {
+                case Array(PSLURIVar(s), PSLURIVar(o)) => s -> o
+                case Array(PSLVar(s), PSLVar(o)) => variableMap(s.getName) -> variableMap(o.getName)
+              }
+              projections += sv
+              projections += ov
+              Seq(s"?$sv a <${sv.uriType}> .",
+                s"?$ov a <${ov.uriType}> .",
+                s"?$sv <$p> $ov .").mkString("\n")
           }
         case spq:SparqlPredicate => a.getArguments match {
           case Array(PSLURIVar(s), PSLURIVar(o)) =>
             if(!spq.isComputed) {
-              spq.precompute(this, s.uriType, o.uriType)
+              spq.precompute(this)
             }
             s"?$s <${spq.predicate}> ?$o ."
         }
@@ -220,7 +275,7 @@ class PSLSparqlDatabase(private val datastore:PSLSparqlDataStore, private val da
     println(f)
     println(preparedQ)
 
-    val res = new SparqlResultList(2, projections.zipWithIndex.toMap)
+    val res = new SparqlResultList(projections.zipWithIndex.toMap)
     val q = anzo.serverQuery(null, null, datasets.asJava, preparedQ).getSelectResults.asScala.foreach { ps =>
       val m = ps.toMap
       res += projections.map(v => xml2Psl(m(v.getName))).toArray
@@ -229,7 +284,7 @@ class PSLSparqlDatabase(private val datastore:PSLSparqlDataStore, private val da
     //res foreach (gt => println(gt.toSeq))
     res
   }
-
+  */
 
   override def close() {/*noOp*/}
 
@@ -247,6 +302,7 @@ class PSLSparqlDatabase(private val datastore:PSLSparqlDataStore, private val da
         val stmtConf = new Statement(s, EncodingUtils.uri(p.toString +"_confidence"), xmlWrap(atom.getConfidenceValue))
         anzo.add(stmt, stmtVal, stmtConf)
         anzo.commit()
+        anzo.updateRepository(true)
       case otw => ???
     }
   }

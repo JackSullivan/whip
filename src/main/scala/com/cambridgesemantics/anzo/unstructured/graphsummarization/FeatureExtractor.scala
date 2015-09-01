@@ -210,22 +210,24 @@ object FeatureExtractorTest {
 
     //ext.linkMap foreach println
 
-    val exemplar = new TypedStandardPredicate[AnzoURI, AnzoURI]("exemplar_" + exemplarUri.getLocalName, exemplarUri) //R[AnzoURI, AnzoURI](exemplarUri.toString, Functional, ArgNone, PredNone)
-    ds registerPredicate exemplar
-    val simFnMap = weightsMap.foreach { case(cls, weights) =>
+    val exemplars = weightsMap.map { case(cls, weights) =>
+      val exemplar = new TypedStandardPredicate[AnzoURI, AnzoURI]("exemplar_" + cls.getLocalName, exemplarUri, cls, cls) //R[AnzoURI, AnzoURI](exemplarUri.toString, Functional, ArgNone, PredNone)
+      ds registerPredicate exemplar
       val preds = predicatesMap(cls)
       val links = ext.linkMap.getOrElse(cls, Iterable.empty)
-      val similar = new NodeSimilarity(anzo, Set(fedataset), preds, weights) //f(cls.toString, createSimilarityFn(anzo, Set(fedataset), preds, weights))
+      val similar = new NodeSimilarity(anzo, Set(fedataset), preds, cls, cls, weights) //f(cls.toString, createSimilarityFn(anzo, Set(fedataset), preds, weights))
       val A = new TypedVariable("A", cls)
       val B = new TypedVariable("B", cls)
       val C = new TypedVariable("C", cls)
       val D = new TypedVariable("D", cls)
+      Seq(A, B, C, D) foreach ds.registerTypedVariable
       links.foreach { case (field, value) =>
         // in the original paper the link feature is symmetric, but in our case they are not
         //val link = R[AnzoURI, AnzoURI](field.toString, ArgNone, ArgNone, new Symmetry {})
-        val link = new TypedStandardPredicate[AnzoURI, AnzoURI]("link_" + field.getLocalName, field) //R[AnzoURI, AnzoURI](field.toString)
-        ds registerPredicate link
+        val link = new TypedStandardPredicate[AnzoURI, AnzoURI]("link_" + field.getLocalName, field, cls, value) //R[AnzoURI, AnzoURI](field.toString)
         val P = new TypedVariable("P", value)
+        ds registerPredicate link
+        ds registerTypedVariable P
 
         (exemplar(A, B) >> similar(A, B)).where(1.0)
         (exemplar(A, B) >> exemplar(B, B)).where(1.0)
@@ -233,7 +235,9 @@ object FeatureExtractorTest {
         ((link(A, P) & exemplar(A, C) & exemplar(D, C)) >> link(D, P)).where(1.0)
 
         exemplar(A, B).where(-1)
+
       }
+      cls -> exemplar
     }
 
     val db = ds.getDatabase(ext.dataSets)
@@ -242,7 +246,10 @@ object FeatureExtractorTest {
     inf.mpeInference()
     inf.close()
 
-    Queries.getAllAtoms(db, exemplar).asScala foreach println
+    exemplars foreach { case(cls, exemplar) =>
+      println(cls)
+        Queries.getAllAtoms(db, exemplar).asScala.foreach(a => println("\t" + a))
+    }
 
     println("done")
   }
@@ -268,9 +275,11 @@ trait SparqlPredicate extends SpecialPredicate {
   val batchSize = 1000
   val namedGraph = uri"http://TempPslFunctions"
   val predicate = EncodingUtils.uri("http://TempPsl" + this.getName)
+  def domain:AnzoURI
+  def range:AnzoURI
   def anzo:IAnzoClient
   def dataSets:Set[AnzoURI]
-  def precompute(db:PSLSparqlDatabase, sType:AnzoURI, oType:AnzoURI): Unit = {
+  def precompute(db:PSLSparqlDatabase): Unit = {
 
     val mkQuery = {(cursor:Int, bSize:Int) =>
       """SELECT ?s1 ?s2
@@ -282,7 +291,7 @@ trait SparqlPredicate extends SpecialPredicate {
         |ORDER BY ?s1
         |OFFSET %d
         |LIMIT %d
-      """.stripMargin.format(sType, oType, cursor, bSize)
+      """.stripMargin.format(domain, range, cursor, bSize)
     }
     new QueryIterator(anzo, dataSets)(mkQuery) foreach { pss =>
       val toCreate = pss.par.flatMap{ ps =>
@@ -303,14 +312,15 @@ trait SparqlPredicate extends SpecialPredicate {
   }
 }
 
-class NodeSimilarity(val anzo:IAnzoClient, val dataSets:Set[AnzoURI], predicates:Seq[AnzoURI], weights:Array[Double]) extends SpecialPredicate("#FieldOverlap", Array(ArgumentType.UniqueID, ArgumentType.UniqueID)) with SparqlPredicate {
+class NodeSimilarity(val anzo:IAnzoClient, val dataSets:Set[AnzoURI], predicates:Seq[AnzoURI], val domain:AnzoURI, val range:AnzoURI, weights:Array[Double]) extends SpecialPredicate("#FieldOverlap", Array(ArgumentType.UniqueID, ArgumentType.UniqueID)) with SparqlPredicate {
   private val featureQ = slurp(getClass.getResourceAsStream("./featureVector.rq"))
   override def computeValue(db: ReadOnlyDatabase, args: GroundTerm*): Double = {
     val Seq(PSLURI(s1), PSLURI(s2)) = args
-    val q = featureQ.format(s1, s2, predicates.map("<" + _ + ">").mkString("\n"))
-    val feats = anzo.serverQuery(null, null, dataSets.asJava, q).getSelectResults.asScala
+    val q = featureQ.format(s1, s2, predicates.map("\t\t\t(<" + _ + ">)").mkString("\n"))
+    val res = anzo.serverQuery(null, null, dataSets.asJava, q).getSelectResults.asScala
+    val feats = res
       .zipWithIndex.foldLeft(new Array[Double](predicates.size)) { case (arr,  (ps, idx)) =>
-      arr(idx) = XMLInt.unapply(ps.getBinding("val")).get.toDouble
+      arr(idx) = Option(ps.getBinding("val")).collectFirst(XMLInt).getOrElse(0).toDouble
       arr
     }
     // we should be able to do this since feature vector query orders by p, and weights should be ordered by p
