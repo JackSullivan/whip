@@ -1,6 +1,5 @@
 package com.cambridgesemantics.anzo.unstructured.graphsummarization
 
-import com.cambridgesemantics.anzo.utilityservices.common.EncodingUtils
 import edu.umd.cs.psl.application.inference.MPEInference
 import edu.umd.cs.psl.config.ConfigManager
 import edu.umd.cs.psl.database.{ReadOnlyDatabase, DataStore}
@@ -9,9 +8,9 @@ import edu.umd.cs.psl.model.argument.{ArgumentType, GroundTerm}
 import edu.umd.cs.psl.model.predicate.SpecialPredicate
 import edu.umd.cs.psl.util.database.Queries
 import AnzoURIExtras._
+import org.openanzo.glitter.query.PatternSolution
 import so.modernized.psl_scala.psl.everything._
-import so.modernized.whip.sparql.QueryIterator
-import so.modernized.whip.{TypedVariable, TypedStandardPredicate, PSLSparqlDatabase, PSLSparqlDataStore}
+import so.modernized.whip._
 import so.modernized.whip.URIUniqueId._
 import so.modernized.whip.util._
 import VectorOps._
@@ -20,7 +19,7 @@ import XMLUnapplicable._
 import org.openanzo.test.AbstractTest
 import org.openanzo.client.{IAnzoClient, AnzoClient}
 import org.openanzo.rdf.vocabulary.XMLSchema
-import org.openanzo.rdf.{URI => AnzoURI, Statement}
+import org.openanzo.rdf.{URI => AnzoURI}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
@@ -254,69 +253,38 @@ object FeatureExtractorTest {
     println("done")
   }
 
-  private val featureQ = slurp(getClass.getResourceAsStream("./featureVector.rq"))
-
-  def createSimilarityFn(anzo:IAnzoClient, dataSets:Set[AnzoURI], predicates:Seq[AnzoURI], weights:Array[Double]):(AnzoURI, AnzoURI) => Double =
-    {(s1:AnzoURI, s2:AnzoURI) =>
-      val q = featureQ.format(s1, s2, predicates.map("<" + _ + ">").mkString("\n"))
-      val feats = anzo.serverQuery(null, null, dataSets.asJava, q).getSelectResults.asScala
-        .zipWithIndex.foldLeft(new Array[Double](predicates.size)) { case (arr,  (ps, idx)) =>
-        arr(idx) = XMLInt.unapply(ps.getBinding("val")).get.toDouble
-        arr
-      }
-      // we should be able to do this since feature vector query orders by p, and weights should be ordered by p
-      (feats dot weights)/feats.length
-    }
 }
 
-trait SparqlPredicate extends SpecialPredicate {
-  var isComputed = false
-  val threshold = 0.5
-  val batchSize = 1000
-  val namedGraph = uri"http://TempPslFunctions"
-  val predicate = EncodingUtils.uri("http://TempPsl" + this.getName)
-  def domain:AnzoURI
-  def range:AnzoURI
-  def anzo:IAnzoClient
-  def dataSets:Set[AnzoURI]
-  def precompute(db:PSLSparqlDatabase): Unit = {
+class NodeSimilarity(val anzo:IAnzoClient, val dataSets:Set[AnzoURI], predicates:Seq[AnzoURI], val domain:AnzoURI, val range:AnzoURI, val weights:Array[Double])
+  extends SpecialPredicate("#FieldOverlap", Array(ArgumentType.UniqueID, ArgumentType.UniqueID))
+  with AggregateSparqlPredicate {
 
-    val mkQuery = {(cursor:Int, bSize:Int) =>
-      """SELECT ?s1 ?s2
-        |WHERE {
-        | ?s1 a %s .
-        | ?s2 a %s .
-        | FILTER(STR(?s1) > STR(?s2)) .
-        |}
-        |ORDER BY ?s1
-        |OFFSET %d
-        |LIMIT %d
-      """.stripMargin.format(domain, range, cursor, bSize)
-    }
-    new QueryIterator(anzo, dataSets)(mkQuery) foreach { pss =>
-      val toCreate = pss.par.flatMap{ ps =>
-        val m = ps.toMap
-        val XMLURI(s1) = m("s1")
-        val XMLURI(s2) = m("s2")
-        if(this.computeValue(new ReadOnlyDatabase(db), xml2Psl(s1), xml2Psl(s2)) > threshold) {
-          Some(new Statement(s1, predicate, s2, namedGraph))
-        } else {
-          None
-        }
-      }.seq
-      anzo add toCreate.asJava
-      anzo.commit()
-      anzo.updateRepository(true)
-    }
-    isComputed = true
+  private val predMap = predicates.zipWithIndex.toMap
+  private def extractRowId(ps:PatternSolution) = {
+    val m = ps.toMap
+    val XMLURI(s1) = m("s1")
+    val XMLURI(s2) = m("s2")
+    s1 -> s2
   }
-}
 
-class NodeSimilarity(val anzo:IAnzoClient, val dataSets:Set[AnzoURI], predicates:Seq[AnzoURI], val domain:AnzoURI, val range:AnzoURI, weights:Array[Double]) extends SpecialPredicate("#FieldOverlap", Array(ArgumentType.UniqueID, ArgumentType.UniqueID)) with SparqlPredicate {
+  val aggregateQuery: String = slurp(getClass.getResourceAsStream("./aggFeatureVector.rq"))
+
+  def cutoff(a:PatternSolution, b:PatternSolution) = extractRowId(a) != extractRowId(b)
+
+  val queryPopulators = Seq(predicates.map("\t\t\t(<" + _ + ">)").mkString("\n"))
+
+  def agg(as:Seq[PatternSolution]):((AnzoURI, AnzoURI), Array[Double]) =
+    as.foldLeft((null.asInstanceOf[AnzoURI], null.asInstanceOf[AnzoURI]) -> new Array[Double](predMap.size)) {
+      case (((_), arr), ps) =>
+        val XMLURI(p) = ps.toMap("p")
+        arr(predMap(p)) = Option(ps.getBinding("val")).collectFirst(XMLInt).getOrElse(0).toDouble
+        extractRowId(ps) -> arr
+    }
+
   private val featureQ = slurp(getClass.getResourceAsStream("./featureVector.rq"))
-  override def computeValue(db: ReadOnlyDatabase, args: GroundTerm*): Double = {
+  override def computeUnderlying(db: ReadOnlyDatabase, args: GroundTerm*): Double = {
     val Seq(PSLURI(s1), PSLURI(s2)) = args
-    val q = featureQ.format(s1, s2, predicates.map("\t\t\t(<" + _ + ">)").mkString("\n"))
+    val q = featureQ.format(s1, s2, queryPopulators.head)
     val res = anzo.serverQuery(null, null, dataSets.asJava, q).getSelectResults.asScala
     val feats = res
       .zipWithIndex.foldLeft(new Array[Double](predicates.size)) { case (arr,  (ps, idx)) =>

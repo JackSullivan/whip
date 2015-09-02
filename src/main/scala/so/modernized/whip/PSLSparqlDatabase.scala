@@ -3,7 +3,7 @@ package so.modernized.whip
 import java.util.{Set => JSet}
 import java.net.{URI => JURI}
 
-import com.cambridgesemantics.anzo.unstructured.graphsummarization.{SparqlPredicate, NodeSimilarity, PatternSolutionExtras}
+import com.cambridgesemantics.anzo.unstructured.graphsummarization.PatternSolutionExtras
 import com.cambridgesemantics.anzo.unstructured.graphsummarization.XMLUnapplicable._
 import so.modernized.psl_scala.primitives.PSLUnapplicable._
 import so.modernized.psl_scala.primitives.{PSLUnapplicable, PSLVar}
@@ -141,6 +141,7 @@ class PSLSparqlDatabase(private val datastore:PSLSparqlDataStore, private val da
             throw new IllegalArgumentException("Expected predicate to be registered as observed or target, but wasn't either")
           }
         case sp:SparqlPredicate =>
+          if(!sp.isComputed) sp.precompute(this)
           cache.instantiateObservedAtom(sp, arguments.toArray, sp.computeValue(new ReadOnlyDatabase(this), arguments:_*), Double.NaN)
       }
     }
@@ -202,89 +203,6 @@ class PSLSparqlDatabase(private val datastore:PSLSparqlDataStore, private val da
     }
     res
   }
-
-  /*
-  override def executeQuery(query: DatabaseQuery): ResultList = {
-    val f = query.getFormula
-    val atoms = f.getAtoms(mutable.Set.empty[Atom].asJava).asScala
-    assert(atoms.forall(_.getArity == 2))
-
-    val projected = (query.getProjectionSubset.asScala.toSet ++
-      f.collectVariables(new VariableTypeMap).asScala.keySet) --
-      query.getPartialGrounding.asScala.keySet
-
-    /* I don't think this is right in the model
-    val variableNotEqual = pairs(projected).map { case(v1, v2) =>
-      s"FILTER(?$v1 != ?$v2) ."
-    }.mkString("\n")
-    */
-
-    val projections = mutable.ArrayBuffer[Variable]()
-    val whereClauses = atoms.map { a =>
-      a.getPredicate match {
-        case sp:TypedStandardPredicate[_,_] =>
-          val p = sp.uriType
-          a match {
-            case rv:RandomVariableAtom => rv.getArguments match {
-              case Array(PSLURIVar(sv), PSLURIVar(ov)) =>
-                projections += sv
-                projections += ov
-                Seq(s"?$sv a <${sv.uriType}> .",
-                  s"?$ov a <${ov.uriType}> .",
-                  s"?$sv <$p> $ov .").mkString("\n")
-              case otw => throw new IllegalArgumentException("Only binary atoms of URIs and variables are currently supported, received " + otw.toSeq)
-            }
-            case obs:ObservedAtom => obs.getArguments match {
-              case Array(PSLURI(s), PSLURI(o))   => s"<$s> <$p> <$o> ."
-              case Array(PSLURIVar(sv), PSLURI(o))  =>
-                projections += sv
-                s"?$sv <$p> <$o> ."
-              case Array(PSLURI(s), PSLURIVar(ov))  =>
-                projections += ov
-                s"<$s> <$p> ?$ov ."
-              case Array(PSLURIVar(sv), PSLURIVar(ov)) =>
-                projections += sv
-                projections += ov
-                s"?$sv <$p> ?$ov ."
-              case otw => throw new IllegalArgumentException("Only binary atoms of URIs and variables are currently supported, received " + otw.toSeq + " with " + otw.map(_.getClass).mkString(" ") + " in " + obs)
-            }
-            case qa:QueryAtom =>
-              val (sv, ov) = qa.getArguments match {
-                case Array(PSLURIVar(s), PSLURIVar(o)) => s -> o
-                case Array(PSLVar(s), PSLVar(o)) => variableMap(s.getName) -> variableMap(o.getName)
-              }
-              projections += sv
-              projections += ov
-              Seq(s"?$sv a <${sv.uriType}> .",
-                s"?$ov a <${ov.uriType}> .",
-                s"?$sv <$p> $ov .").mkString("\n")
-          }
-        case spq:SparqlPredicate => a.getArguments match {
-          case Array(PSLURIVar(s), PSLURIVar(o)) =>
-            if(!spq.isComputed) {
-              spq.precompute(this)
-            }
-            s"?$s <${spq.predicate}> ?$o ."
-        }
-      }
-    }.mkString("\n")
-
-    val projectionString = projections.map(v => "?" + v.getName).toSet.mkString(" ")
-
-    val preparedQ = executeQ.format(projectionString, whereClauses /*+ "\n" + variableNotEqual*/)
-    println(f)
-    println(preparedQ)
-
-    val res = new SparqlResultList(projections.zipWithIndex.toMap)
-    val q = anzo.serverQuery(null, null, datasets.asJava, preparedQ).getSelectResults.asScala.foreach { ps =>
-      val m = ps.toMap
-      res += projections.map(v => xml2Psl(m(v.getName))).toArray
-    }
-    println(datasets)
-    //res foreach (gt => println(gt.toSeq))
-    res
-  }
-  */
 
   override def close() {/*noOp*/}
 

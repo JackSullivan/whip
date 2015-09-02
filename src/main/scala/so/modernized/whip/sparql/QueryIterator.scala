@@ -13,6 +13,7 @@ class QueryIterator(anzo:IAnzoClient, datasets:Set[AnzoURI])(query:(Int, Int) =>
 
   override def next(): Seq[PatternSolution] = {
     val q = query(cursor, batchSize)
+    println(q)
     val res = anzo.serverQuery(null, null, datasets.asJava, q).getSelectResults.asScala
     cursor += batchSize
     lastReturnedRows = res.size

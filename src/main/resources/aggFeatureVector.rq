@@ -1,0 +1,18 @@
+SELECT ?s1 ?s2 ?p (MAX(?vals) AS ?val) # max of a binary seq is logical or
+WHERE {
+  {
+    SELECT ?s1 ?s2 ?p (IF(?o1 = ?o2, 1, 0) AS ?vals)
+    WHERE {
+      ?s1 ?p ?o1 .
+      ?s2 ?p ?o2 .
+      FILTER(STR(?s1) >= STR(?s)) . # because our comparison is symmetric
+    }
+    VALUES (?p) {
+%s
+    }
+  }
+}
+GROUP BY ?s1 ?s2 ?p
+ORDER BY ?s1 ?s2 ?p
+OFFSET %s
+LIMIT %s
