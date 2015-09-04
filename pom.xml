@@ -29,9 +29,14 @@
       <version>${scala.version}</version>
     </dependency>
     <dependency>
-      <groupId>org.spire-math</groupId>
-      <artifactId>spire_${scala.compat.version}</artifactId>
-      <version>0.10.1</version>
+      <groupId>org.scala-lang.modules</groupId>
+      <artifactId>scala-xml_2.11</artifactId>
+      <version>1.0.5</version>
+    </dependency>
+    <dependency>
+      <groupId>commons-io</groupId>
+      <artifactId>commons-io</artifactId>
+      <version>2.4</version>
     </dependency>
 
     <!-- Test -->
