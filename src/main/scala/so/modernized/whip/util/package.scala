@@ -20,4 +20,7 @@ package object util {
     pairsHelper(List.empty[(A, A)], as.toList)
   }
 
+  def always[A](a:A):Boolean = true
+  def never[A](a:A):Boolean = false
+
 }

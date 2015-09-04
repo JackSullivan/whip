@@ -6,9 +6,10 @@ import org.openanzo.rdf.{URI => AnzoURI}
 
 import scala.collection.JavaConverters._
 
-class QueryIterator(anzo:IAnzoClient, datasets:Set[AnzoURI])(query:(Int, Int) => String, batchSize:Int=1000) extends Iterator[Seq[PatternSolution]] {
+class QueryIterator(anzo:IAnzoClient, datasets:Set[AnzoURI])(query:(Int, Int) => String, batchSize:Int=100) extends Iterator[Seq[PatternSolution]] {
   private var cursor = 0
-  private var lastReturnedRows = 0
+  private var lastReturnedRows = batchSize
+  println("query iter inst")
   override def hasNext: Boolean = lastReturnedRows == batchSize
 
   override def next(): Seq[PatternSolution] = {

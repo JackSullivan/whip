@@ -135,7 +135,8 @@ class PSLSparqlDatabase(private val datastore:PSLSparqlDataStore, private val da
             println("generating obs atom for " + (tp, arguments, value))
             cache.instantiateObservedAtom(tp, arguments.toArray, value, Double.NaN)
           } else if(target contains tp) {
-            println("generating rv atom for " + (tp, arguments, value))
+            if(value > 0.0)
+              println("generating rv atom for " + (tp, arguments, value))
             cache.instantiateRandomVariableAtom(tp, arguments.toArray, value, Double.NaN)
           } else {
             throw new IllegalArgumentException("Expected predicate to be registered as observed or target, but wasn't either")
