@@ -57,14 +57,25 @@ object UpdateIml {
 
       if(libModule.isDefined) println("generating libModule")
 
-      def traverse(e:Node):Node= e match {
-        case <content>{cs @ _* }</content> => <content url="file://$MODULE_DIR$">{contentNodes}</content>
-        case n if n.label == "orderEntry" && (n \ "@type").toString() == "module-library" =>
-          <orderEntry type="module-library">{ n.child ++ libModule}</orderEntry>
-        case node if node.child.nonEmpty =>
-          Elem(node.prefix, node.label, node.attributes, node.scope, true, node.child.map(traverse):_*)
-        case leaf => leaf
+      def traverse(e:Node):Node = {
+        //println(e.label, e.attributes)
+        e match {
+          case <content>{cs @ _* }</content> =>
+            println("content")
+            println(cs)
+            <content url="file://$MODULE_DIR$">{contentNodes}</content>
+          case n if n.label == "orderEntry" && (n \ "@type").toString() == "module-library" =>
+            println("orderEntry")
+            println(n)
+            <orderEntry type="module-library">{ n.child ++ libModule}</orderEntry>
+          case node if node.child.nonEmpty =>
+            //println("recurse")
+            Elem(node.prefix, node.label, node.attributes, node.scope, true, node.child.map(traverse):_*)
+          case leaf =>
+            //println("leaf")
+            leaf
 
+        }
       }
 
       val newXml = traverse(xml)
