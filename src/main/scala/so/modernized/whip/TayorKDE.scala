@@ -5,6 +5,7 @@ import spire.algebra._
 import spire.implicits._
 import scala.{specialized => sp}
 
+/*
 class TaylorKDE[@sp(Double, Float) N : Field : Trig : NRoot](xs:Array[N], p:Natural, numClusters:Int) {
 
   val sortedXs = xs.qsorted
@@ -89,3 +90,4 @@ class NaiveTaylorKDE(xs:Array[Double], p:Int, numClusters:Int, sigma:Double) {
 }
 
 
+*/

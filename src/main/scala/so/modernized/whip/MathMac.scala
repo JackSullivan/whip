@@ -3,6 +3,8 @@ package so.modernized.whip
 import scala.reflect.macros.blackbox.Context
 import scala.language.experimental.macros
 
+
+/*
 class Impl(val c:Context) {
   import c.universe._
   private val newArr = TermName(c.freshName("arr"))
@@ -73,3 +75,4 @@ object MathMac {
   v + 3
 
 }
+*/
