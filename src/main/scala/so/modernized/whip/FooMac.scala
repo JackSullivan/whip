@@ -5,7 +5,7 @@ import scala.language.experimental.macros
 
 sealed trait FooState
 case object Unset extends FooState
-case class Set(state:String) extends FooState
+case class ASet(state:String) extends FooState
 
 
 
@@ -13,12 +13,12 @@ object Foo {
   var fooState: FooState = Unset
 
   def fmStartFoo(state: String): Unit = {
-    fooState = Set(state)
+    fooState = ASet(state)
   }
 
   def fmInFoo(fmDo: String) = {
     fooState match {
-      case Set(state) =>
+      case ASet(state) =>
         println("doing: " + fmDo + " with state: " + state)
       case _ => throw new IllegalArgumentException("foo needs to be set, was " + fooState)
     }

@@ -4,9 +4,14 @@ import java.io.File
 import java.net.URL
 import java.nio.file.{Files, Paths}
 
+import cc.factorie.app.nlp.lexicon.{StaticLexicons, LexiconsProvider}
 import cc.factorie.app.nlp.load.{BILOUChunkDomain, BILOUChunkTag, LoadConll2003}
-import cc.factorie.app.nlp.ner.{ConllNerSpanBuffer, ConllNerSpan, NerAnnotator, LabeledBilouConllNerTag}
-import cc.factorie.app.nlp.{Document => FacDocument, Section, Sentence}
+import cc.factorie.app.nlp.ner._
+import cc.factorie.app.nlp.phrase.DatePhraseFinder
+import cc.factorie.app.nlp.segment.{DeterministicSentenceSegmenter, DeterministicTokenizer}
+import cc.factorie.app.nlp.{Document => FacDocument, Token, DocumentAnnotator, Section, Sentence}
+import cc.factorie.util.{DefaultCmdOptions, ModelProviderCmdOptions, CmdOptions, ModelProvider}
+import com.google.caliper.{Param, BeforeExperiment, Benchmark}
 import gate.creole.{ANNIEConstants, SerialAnalyserController}
 import gate.{Factory => GateFactory, Annotation, ProcessingResource, Gate}
 
@@ -527,4 +532,103 @@ object ConllBlankNerAnnotator extends NerAnnotator[ConllNerSpan, LabeledBilouCon
   def newBuffer = new ConllNerSpanBuffer
   def newSpan(sec: Section, start: Int, length: Int, category: String) = new ConllNerSpan(sec, start, length, category)
   def prereqAttrs = Seq(classOf[LabeledBilouConllNerTag])
+}
+
+object SpeedTestCmdOpts extends CmdOptions with ModelProviderCmdOptions with DefaultCmdOptions {
+  val nerModel = new ModelCmdOption[ConllChainNer]
+  val lexiconFile = new CmdOption[File]("lexicons", new File(""), "FILE", "")
+  val conllData = new CmdOption[File]("conll-data", new File(""), "FILE", "")
+}
+
+object AnnieSpeedTest {
+  def main(args:Array[String]): Unit = {
+    SpeedTestCmdOpts parse args
+    import SpeedTestCmdOpts._
+
+    val docs = new LoadConll2003(true, true).fromFile(conllData.value)
+
+    sys.props += "gate.plugins.home" -> "/Users/johnsullivan/git/anzo/anzo/com.cambridgesemantics.anzo.unstructured/OSGI-INF/Gate/gate-6.1-build3913-ALL/plugins"
+    sys.props += "gate.site.config" -> "/Users/johnsullivan/git/anzo/anzo/com.cambridgesemantics.anzo.unstructured/OSGI-INF/Gate/gate-6.1-build3913-ALL/gate.xml"
+    Gate.setGateHome(new File("/Users/johnsullivan/git/anzo/anzo/com.cambridgesemantics.anzo.unstructured/OSGI-INF/Gate/gate-6.1-build3913-ALL"))
+    Gate.setPluginsHome(new File("/Users/johnsullivan/git/anzo/anzo/com.cambridgesemantics.anzo.unstructured/OSGI-INF/Gate/gate-6.1-build3913-ALL/plugins"))
+    Gate.init()
+
+    val gDocs = docs map Runagate.factorie2Gate
+
+    Gate.getCreoleRegister.registerDirectories(new File("/Users/johnsullivan/git/anzo/anzo/com.cambridgesemantics.anzo.unstructured/OSGI-INF/Gate/gate-6.1-build3913-ALL/plugins", "ANNIE").toURI.toURL)
+
+    val controller = GateFactory.createResource("gate.creole.SerialAnalyserController", GateFactory.newFeatureMap(), GateFactory.newFeatureMap(), "ANNIE_" + Gate.genSym()).asInstanceOf[SerialAnalyserController]
+    controller.add(GateFactory.createResource("gate.creole.annotdelete.AnnotationDeletePR").asInstanceOf[ProcessingResource])
+    ANNIEConstants.PR_NAMES.foreach { preReq =>
+      controller.add(GateFactory.createResource(preReq, GateFactory.newFeatureMap()).asInstanceOf[ProcessingResource])
+    }
+
+
+    println("Starting run of %d docs".format(docs.length))
+    val times = new mutable.ArrayBuffer[Double]()
+    var idx = 0
+    (0 until 50) foreach {_ =>
+      val corpus = GateFactory.newCorpus("gate.corpora.CorpusImpl")
+      gDocs foreach corpus.asInstanceOf[java.util.List[gate.Document]].add
+      controller setCorpus corpus
+      val startTime = System.currentTimeMillis()
+      controller.execute()
+      val endTime = System.currentTimeMillis()
+      times += (endTime - startTime)/1000.0
+      idx += 1
+      println("run %d took %.4f secs".format(idx, times.last))
+    }
+    println("Average run: %.4f secs".format(times.sum / times.length))
+
+
+  }
+
+}
+
+object FactorieSpeedTest {
+
+  def setUp(mp:ModelProvider[ConllChainNer], lexicons:LexiconsProvider): DocumentAnnotator = {
+
+    new DocumentAnnotator {
+      def postAttrs = ???
+      def prereqAttrs = ???
+      private val ner = new ConllChainNer()(mp, new StaticLexicons()(lexicons))
+      ner.createChunks = false
+
+      def process(document: FacDocument) =
+        ner.process(
+          DeterministicSentenceSegmenter.process(
+            DeterministicTokenizer.process(document)))
+
+      def tokenAnnotationString(token: Token) = null
+    }
+  }
+
+
+  def main(args:Array[String]): Unit = {
+    SpeedTestCmdOpts parse args
+    import SpeedTestCmdOpts._
+
+    val anno = setUp(nerModel.value, lexiconFile.value)
+    val preDocs = new LoadConll2003(true, true).fromFile(conllData.value)
+
+    println("Starting run of %d docs".format(preDocs.length))
+    val times = new mutable.ArrayBuffer[Double]()
+    var idx = 0
+    (0 until 50) foreach {_ =>
+      val docIter = preDocs.map(d => new FacDocument(d.string)).iterator
+      val startTime = System.currentTimeMillis()
+      while(docIter.hasNext) {
+        val doc = docIter.next()
+        anno.process(doc)
+      }
+      val endTime = System.currentTimeMillis()
+      times += (endTime - startTime)/1000.0
+      idx += 1
+      println("run %d took %.4f secs".format(idx, times.last))
+    }
+    println("Average run: %.4f secs".format(times.sum / times.length))
+    println("Tail Average: %.4f secs".format(times.tail.sum / (times.length - 1)))
+
+  }
 }
