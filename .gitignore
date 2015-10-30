@@ -39,3 +39,9 @@ build.log
 
 #SHITTY output not in target directory
 build.log
+
+#ignore mac stuff
+.DS_Store
+
+#a folder for storing models that are too big to commit
+models
