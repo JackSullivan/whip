@@ -1,6 +1,6 @@
-package
+package so.modernized.whip
 
-object Simulation extends App {
+object SprinklerDemo {
 
   import scala.util.Random
   import cc.factorie.directed._
