@@ -45,3 +45,7 @@ build.log
 
 #a folder for storing models that are too big to commit
 models
+
+src/main/scala/com
+src/main/java/com
+src/main/java/org
