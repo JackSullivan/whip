@@ -7,6 +7,7 @@ import scala.util.{Failure, Success, Try}
 
 trait Readable[A, B] extends (A => B)
 
+@deprecated("mostly superceded by cc.factorie.itil.ISAble", "10/30/2015")
 object Readable {
   def read[A, B](a:A)(implicit ev:Readable[A, B]):B = ev(a)
   def slurp[A](a:A)(implicit ev:Readable[A, Iterator[String]]) = ev(a).mkString("\n")
