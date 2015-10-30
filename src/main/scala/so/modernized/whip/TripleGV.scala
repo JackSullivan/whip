@@ -1,8 +1,8 @@
-package so.modernized
+package so.modernized.whip
 
 import java.io.File
 
-import and.useful.Readable._
+import so.modernized.and.useful.Readable._
 
 import scala.collection.mutable
 

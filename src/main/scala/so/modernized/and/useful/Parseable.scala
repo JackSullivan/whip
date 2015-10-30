@@ -24,16 +24,5 @@ object Parseable {
   def parse[A,B](a:A)(implicit ev:Parseable[A, B]):B = ev(a)
   def getParse[A,B](a:A)(implicit ev:Parseable[A, B]):Option[B] = ev.unapply(a)
 
-  //def twoStep[A, B, C](a:A)(implicit ev1:Parseable[A, B], ev2:Parseable[B, C]):C = ev2(ev1(a))
-}
-
-object Test {
-  import Parseable._
-  def main(args:Array[String]): Unit = {
-    val s = "1000"
-    val IntString(i) = s
-    println(i)
-
-  }
 }
 

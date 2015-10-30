@@ -1,23 +1,19 @@
-package so.modernized.whip
+package so.modernized.whip.testing
 
-import java.io.{BufferedWriter, FileWriter, File}
+import java.io.{BufferedWriter, File, FileWriter}
 import java.net.URL
-import java.nio.file.{Files, Paths}
 
-import cc.factorie.app.nlp.lexicon.{StaticLexicons, LexiconsProvider}
+import cc.factorie.app.nlp.lexicon.{LexiconsProvider, StaticLexicons}
 import cc.factorie.app.nlp.load.{BILOUChunkDomain, BILOUChunkTag, LoadConll2003}
 import cc.factorie.app.nlp.ner._
-import cc.factorie.app.nlp.phrase.DatePhraseFinder
 import cc.factorie.app.nlp.segment.{DeterministicSentenceSegmenter, DeterministicTokenizer}
-import cc.factorie.app.nlp.{Document => FacDocument, Token, DocumentAnnotator, Section, Sentence}
-import cc.factorie.util.{DefaultCmdOptions, ModelProviderCmdOptions, CmdOptions, ModelProvider}
-import com.google.caliper.{Param, BeforeExperiment, Benchmark}
+import cc.factorie.app.nlp.{Document => FacDocument, DocumentAnnotator, Sentence, Token}
+import cc.factorie.util.{CmdOptions, DefaultCmdOptions, ModelProvider, ModelProviderCmdOptions}
 import gate.creole.{ANNIEConstants, SerialAnalyserController}
-import gate.{Factory => GateFactory, Annotation, ProcessingResource, Gate}
+import gate.{Annotation, Factory => GateFactory, Gate, ProcessingResource}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
 
 /**
  * @author johnsullivan

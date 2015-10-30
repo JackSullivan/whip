@@ -1,9 +1,9 @@
-package so.modernized.whip
+package so.modernized.whip.testing
 
 import java.io.File
 
 import cc.factorie.app.nlp.lexicon.{LexiconsProvider, StaticLexicons}
-import cc.factorie.util.{ModelProviderCmdOptions, DefaultCmdOptions, CmdOptions}
+import cc.factorie.util.{CmdOptions, DefaultCmdOptions, ModelProviderCmdOptions}
 
 /**
  * @author johnsullivan

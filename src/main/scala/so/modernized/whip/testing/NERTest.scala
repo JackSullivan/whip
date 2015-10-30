@@ -1,19 +1,16 @@
-package so.modernized.whip
+package so.modernized.whip.testing
 
 import java.io.File
-import java.net.URL
 import java.util.concurrent.atomic.AtomicInteger
 
-import cc.factorie.app.nlp.lexicon.{StaticLexicons, Lexicon}
-import cc.factorie.app.nlp.{DocumentAnnotator, Document}
-import cc.factorie.app.nlp.ner.{BilouConllNerDomain, BilouConllNerTag, ConllChainNer}
-import cc.factorie.app.nlp.phrase.DatePhraseFinder
-import cc.factorie.app.nlp.phrase.DatePhraseFinder.{DatePhrase, DatePhraseList}
-import cc.factorie.app.nlp.segment.{DeterministicTokenizer, DeterministicSentenceSegmenter}
-import cc.factorie.util.ModelProvider._
+import cc.factorie.app.nlp.lexicon.StaticLexicons
+import cc.factorie.app.nlp.ner.{BilouConllNerTag, ConllChainNer}
+import cc.factorie.app.nlp.segment.{DeterministicSentenceSegmenter, DeterministicTokenizer}
+import cc.factorie.app.nlp.{Document, DocumentAnnotator}
 import cc.factorie.util.ModelProvider
+import cc.factorie.util.ModelProvider._
 import org.apache.commons.io.FileUtils
-import scala.StringBuilder
+
 import scala.collection.mutable
 
 /**

@@ -1,9 +1,10 @@
-package so.modernized.whip
+package so.modernized.whip.testing
 
-import scala.util.Random
-import spire.math._
 import spire.algebra._
 import spire.implicits._
+import spire.math._
+
+import scala.util.Random
 
 object SpireKDE{
   def apply[@specialized(Double) N : Field : Trig : NRoot](xs:Array[N], x:N, sigma:N) = {
