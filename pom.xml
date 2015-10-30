@@ -34,6 +34,16 @@
       <version>1.0.5</version>
     </dependency>
     <dependency>
+      <groupId>org.codehaus.jackson</groupId>
+      <artifactId>jackson-core-asl</artifactId>
+      <version>1.9.13</version>
+    </dependency>
+    <dependency>
+      <groupId>org.codehaus.jackson</groupId>
+      <artifactId>jackson-mapper-asl</artifactId>
+      <version>1.9.13</version>
+    </dependency>
+    <dependency>
       <groupId>org.spire-math</groupId>
       <artifactId>spire_${scala.compat.version}</artifactId>
       <version>0.10.1</version>
@@ -58,13 +68,134 @@
       <artifactId>gate-compiler-jdt</artifactId>
       <version>3.7.1</version>
     </dependency>
-
     <dependency>
-      <groupId>com.google.caliper</groupId>
-      <artifactId>caliper</artifactId>
-      <version>1.0-beta-2</version>
+      <groupId>so.modernized.psl_scala</groupId>
+      <artifactId>psl_scala</artifactId>
+      <version>0.0.1-SNAPSHOT</version>
     </dependency>
-    <!-- Test -->
+    <dependency>
+      <groupId>joda-time</groupId>
+      <artifactId>joda-time</artifactId>
+      <version>2.8.1</version>
+    </dependency>
+    <dependency>
+      <groupId>org.joda</groupId>
+      <artifactId>joda-convert</artifactId>
+      <version>1.7</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.geronimo.specs</groupId>
+      <artifactId>geronimo-jms_1.1_spec</artifactId>
+      <version>1.1.1</version>
+      <exclusions>
+        <exclusion>
+          <groupId>com.sun.jmx</groupId>
+          <artifactId>jmxri</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.sun.jdmk</groupId>
+          <artifactId>jmxtools</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>javax.jms</groupId>
+          <artifactId>jms</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.openrdf.sesame</groupId>
+      <artifactId>sesame-model</artifactId>
+      <version>2.7.0</version>
+      <exclusions>
+        <exclusion>
+          <groupId>com.sun.jmx</groupId>
+          <artifactId>jmxri</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.sun.jdmk</groupId>
+          <artifactId>jmxtools</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>javax.jms</groupId>
+          <artifactId>jms</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.openrdf</groupId>
+      <artifactId>openrdf-model</artifactId>
+      <version>1.2.7</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openrdf</groupId>
+      <artifactId>openrdf-util</artifactId>
+      <version>1.2.7</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.ontologies</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.client</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.datasource</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.rdf</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.exceptions</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.services</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>com.cambridgesemantics.anzo</groupId>
+      <artifactId>com.cambridgesemantics.anzo.datasource</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>com.cambridgesemantics.anzo</groupId>
+      <artifactId>com.cambridgesemantics.anzo.licensemanager</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.analysis</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.client</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openanzo</groupId>
+      <artifactId>org.openanzo.combus</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>com.cambridgesemantics.anzo</groupId>
+      <artifactId>com.cambridgesemantics.anzo.utilityservices</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>com.cambridgesemantics.anzo</groupId>
+      <artifactId>com.cambridgesemantics.anzo.datasource.bigdata</artifactId>
+      <version>3.5.0-SNAPSHOT</version>
+    </dependency>
   </dependencies>
 
   <build>
