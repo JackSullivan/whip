@@ -1,0 +1,16 @@
+SELECT ?p (MAX(?vals) AS ?val) # max of binaries is or
+WHERE {
+  {
+    SELECT ?p (IF(?o1 = ?o2, 1, 0) AS ?vals)
+    WHERE {
+      <%s> ?p ?o1 .
+      <%s> ?p ?o2 .
+    }
+    VALUES (?p) {
+%s
+    }
+  }
+}
+GROUP BY ?p
+ORDER BY ?p
+

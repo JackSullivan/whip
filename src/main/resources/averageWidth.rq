@@ -1,0 +1,13 @@
+SELECT ?t (AVG(?count_preds) AS ?width) 
+WHERE {
+  {
+    SELECT ?t ?s (COUNT (DISTINCT ?p) AS ?count_preds) {
+      ?s ?p ?o .
+      ?s a ?t .
+    }
+    GROUP BY ?t ?s
+    ORDER BY ?count_preds
+  }
+}
+GROUP BY ?t
+ORDER BY ?width

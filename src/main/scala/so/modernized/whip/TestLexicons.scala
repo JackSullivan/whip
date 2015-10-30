@@ -2,7 +2,7 @@ package so.modernized.whip
 
 import java.io.File
 
-import cc.factorie.app.nlp.lexicon.StaticLexicons
+import cc.factorie.app.nlp.lexicon.{LexiconsProvider, StaticLexicons}
 import cc.factorie.util.{ModelProviderCmdOptions, DefaultCmdOptions, CmdOptions}
 
 /**
@@ -17,7 +17,7 @@ object TestLexicons {
     opts parse args
     import opts._
 
-    val lex = new StaticLexicons()(lexicons.value)
+    val lex = new StaticLexicons()(LexiconsProvider.fromFile(lexicons.value, true))
 
     lex.iesl.Continents.toString()
     lex.iesl.Country.toString()
@@ -122,10 +122,10 @@ object TestLexicons {
     lex.wikipedia.SongAndRedirect.toString()
     lex.wikipedia.SongDisambiguation.toString()
 
-    /*
+
     lex.mandarin.SurnamePinyin.toString()
     lex.mandarin.GivenNamePinyin.toString()
-    */
+
 
   }
 

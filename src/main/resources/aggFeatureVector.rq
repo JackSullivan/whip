@@ -1,0 +1,26 @@
+SELECT ?s1 ?s2 (SUM(?vals) AS ?score)
+WHERE {
+  {
+      SELECT ?s1 ?s2 ?p (MULTIPLY(?w, MAX(?vals)) AS ?vals)
+      WHERE {
+        {
+          SELECT ?s1 ?s2 ?p ?w (IF(?o1 = ?o2, 1, 0) AS ?vals)
+          WHERE {
+            ?s1 ?p ?o1 .
+            ?s2 ?p ?o2 .
+            BIND (%s AS ?cls)
+            ?s1 a ?cls .
+            ?s2 a ?cls .
+          }
+          VALUES (?p ?w) {
+%s
+          }
+        }
+      }
+      GROUP BY ?s1 ?s2 ?p
+  }
+}
+GROUP BY ?s1 ?s2
+ORDER BY ?s1 ?s2
+OFFSET %s
+LIMIT %s

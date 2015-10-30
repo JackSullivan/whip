@@ -1,0 +1,29 @@
+SELECT ?cls ?p ?log_prob ?max_ent (?log_prob / ?max_ent AS ?ent_prop)
+WHERE {
+  {
+  SELECT ?cls ?p (SUM(IF(?prob = 0, 0, MULTIPLY(LOG(?prob,2), -?prob))) AS ?log_prob) (LOG(COUNT(DISTINCT ?o), 2) AS ?max_ent)
+  WHERE {
+    {
+    SELECT ?cls ?p ?o  (DIVIDE(COUNT(?o), ?denom) AS ?prob)
+    WHERE {
+      ?s ?p ?o .
+      ?s a ?cls .
+      {
+        SELECT ?cls ?p (COUNT(?o) AS ?denom)
+        {
+          ?s ?p ?o .      
+          ?s a ?cls .
+        }
+        GROUP BY ?cls ?p
+        VALUES (?cls ?p) {
+          %s
+        }
+      }
+    }
+    GROUP BY ?cls ?p ?o ?denom
+    }
+  }
+  GROUP BY ?cls ?p
+  }
+}
+ORDER BY ?ent_prop

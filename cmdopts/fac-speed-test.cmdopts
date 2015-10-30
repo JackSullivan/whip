@@ -1,0 +1,3 @@
+--cc.factorie.app.nlp.ner.ConllChainNer=ConllChainNer.factorie
+--conll-data=/Users/johnsullivan/data/conll2003/eng.testa 
+--lexicons=/Users/johnsullivan/git/whip/src/main/resources/cc/factorie/app/nlp/lexicon 

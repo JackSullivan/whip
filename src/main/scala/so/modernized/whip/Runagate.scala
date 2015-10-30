@@ -1,6 +1,6 @@
 package so.modernized.whip
 
-import java.io.File
+import java.io.{BufferedWriter, FileWriter, File}
 import java.net.URL
 import java.nio.file.{Files, Paths}
 
@@ -481,7 +481,7 @@ object Runagate {
 
   def main(args:Array[String]): Unit = {
     val loader = new LoadConll2003(true, true)
-    val docs = loader.fromSource(io.Source.fromFile(args(0))).map(ConllBlankNerAnnotator.process)
+    val docs = loader.fromSource(io.Source.fromFile(args(0))).map(BilouConllNerChunkAnnotator.process)
 
 
     sys.props += "gate.plugins.home" -> "/Users/johnsullivan/git/anzo/anzo/com.cambridgesemantics.anzo.unstructured/OSGI-INF/Gate/gate-6.1-build3913-ALL/plugins"
@@ -527,23 +527,27 @@ object Runagate {
   }
 }
 
+/*
 object ConllBlankNerAnnotator extends NerAnnotator[ConllNerSpan, LabeledBilouConllNerTag] {
   def annotateTokens(document: FacDocument) = document
   def newBuffer = new ConllNerSpanBuffer
   def newSpan(sec: Section, start: Int, length: Int, category: String) = new ConllNerSpan(sec, start, length, category)
   def prereqAttrs = Seq(classOf[LabeledBilouConllNerTag])
 }
+*/
 
-object SpeedTestCmdOpts extends CmdOptions with ModelProviderCmdOptions with DefaultCmdOptions {
+trait SpeedTestCmdOpts extends CmdOptions with ModelProviderCmdOptions with DefaultCmdOptions {
   val nerModel = new ModelCmdOption[ConllChainNer]
   val lexiconFile = new CmdOption[File]("lexicons", new File(""), "FILE", "")
   val conllData = new CmdOption[File]("conll-data", new File(""), "FILE", "")
 }
 
 object AnnieSpeedTest {
+  val opts = new SpeedTestCmdOpts {}
+
   def main(args:Array[String]): Unit = {
-    SpeedTestCmdOpts parse args
-    import SpeedTestCmdOpts._
+    opts parse args
+    import opts._
 
     val docs = new LoadConll2003(true, true).fromFile(conllData.value)
 
@@ -587,27 +591,31 @@ object AnnieSpeedTest {
 
 object FactorieSpeedTest {
 
-  def setUp(mp:ModelProvider[ConllChainNer], lexicons:LexiconsProvider): DocumentAnnotator = {
+  def setUp(implicit mp:ModelProvider[ConllChainNer], lexicons:LexiconsProvider): DocumentAnnotator = {
 
     new DocumentAnnotator {
       def postAttrs = ???
       def prereqAttrs = ???
-      private val ner = new ConllChainNer()(mp, new StaticLexicons()(lexicons))
-      ner.createChunks = false
+      println(ModelProvider.providerFor[ConllChainNer])
+      private val ner = new WellFormedNer(new ConllChainNer()(mp, new StaticLexicons()(lexicons)))
+      //ner.createChunks = false
 
       def process(document: FacDocument) =
-        ner.process(
-          DeterministicSentenceSegmenter.process(
-            DeterministicTokenizer.process(document)))
+        BilouConllNerChunkAnnotator.process(
+          ner.process(
+            DeterministicSentenceSegmenter.process(
+              DeterministicTokenizer.process(document))))
 
       def tokenAnnotationString(token: Token) = null
     }
   }
 
+  val opts = new SpeedTestCmdOpts {}
+
 
   def main(args:Array[String]): Unit = {
-    SpeedTestCmdOpts parse args
-    import SpeedTestCmdOpts._
+    opts parse args
+    import opts._
 
     val anno = setUp(nerModel.value, lexiconFile.value)
     val preDocs = new LoadConll2003(true, true).fromFile(conllData.value)
@@ -615,12 +623,13 @@ object FactorieSpeedTest {
     println("Starting run of %d docs".format(preDocs.length))
     val times = new mutable.ArrayBuffer[Double]()
     var idx = 0
-    (0 until 50) foreach {_ =>
+    (0 until 1) foreach {_ =>
       val docIter = preDocs.map(d => new FacDocument(d.string)).iterator
       val startTime = System.currentTimeMillis()
       while(docIter.hasNext) {
         val doc = docIter.next()
         anno.process(doc)
+        print(".")
       }
       val endTime = System.currentTimeMillis()
       times += (endTime - startTime)/1000.0
@@ -629,6 +638,38 @@ object FactorieSpeedTest {
     }
     println("Average run: %.4f secs".format(times.sum / times.length))
     println("Tail Average: %.4f secs".format(times.tail.sum / (times.length - 1)))
+
+  }
+}
+
+object TestWellFormedNer {
+  val opts = new SpeedTestCmdOpts {
+    val outDir = new CmdOption[File]("output-dir", new File("conll-out"), "DIR", "")
+  }
+
+  def main(args:Array[String]): Unit = {
+    opts parse args
+    import opts._
+
+    val docs = new LoadConll2003(true, false).fromFile(conllData.value)
+
+    val tagger = new ConllChainNer()(nerModel.value, new StaticLexicons()(lexiconFile.value))
+    val wfTagger = new WellFormedNer(tagger)
+
+    docs.foreach(tagger.process)
+
+    docs.foreach{ doc =>
+      val tokLines = doc.tokens.toSeq.map { t =>
+        t.string + "\t" + t.attr[BilouConllNerTag].categoryValue
+      }
+      wfTagger process doc
+      BilouConllNerChunkAnnotator process doc
+      val docString = tokLines.zip(doc.tokens.toSeq.map(_.attr[BilouConllNerTag].categoryValue)).map{case (x,y) => x + "\t" + y}.mkString("\n")
+      val wrt = new BufferedWriter(new FileWriter(new File(outDir.value, doc.name)))
+      wrt.write(docString)
+      wrt.flush()
+      wrt.close()
+    }
 
   }
 }

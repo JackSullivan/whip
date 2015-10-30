@@ -43,7 +43,7 @@ object NERTest {
     DeterministicTokenizer.process(doc)
     DeterministicSentenceSegmenter.process(doc)
     da.process(doc)
-    DatePhraseFinder.process(doc)
+    //DatePhraseFinder.process(doc)
   }
 
   def getFilesWhere(dir:File, pred:File => Boolean={_ => true}):Seq[File] = if(dir.isDirectory) {
@@ -80,12 +80,14 @@ object NERTest {
         currentStart = -1
       }
     }
+    /*m
     val dpIter = doc.attr[DatePhraseList].iterator
     while(dpIter.hasNext) {
       val datePhrase = dpIter.next().asInstanceOf[DatePhrase]
       datePhrase.head.stringStart
       annos += LightAnnotation(doc.name, datePhrase.head.stringStart, datePhrase.last.stringEnd, "%d-%d-%d".format(datePhrase.year, datePhrase.month, datePhrase.day))
     }
+    */
 
     annos
   }

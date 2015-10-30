@@ -1,0 +1,13 @@
+PREFIX frame: <http://cambridgesemantics.com/ontologies/2008/07/OntologyService#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?cls ?ontProp ?range 
+WHERE {
+  ?frm frame:ontology <%s> .
+  ?frm frame:class ?cls .
+  ?cls frame:frameProperty ?field .
+  ?field frame:propertyRange ?range .
+  ?field frame:ontologyProperty ?ontProp .
+  FILTER(?ontProp != rdf:type) .
+}
+ORDER BY ?cls ?ontProp

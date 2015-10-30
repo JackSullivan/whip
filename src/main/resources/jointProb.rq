@@ -1,0 +1,22 @@
+PREFIX film: <http://cambridgesemantics.com/ontologies/2009/08/Film#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+SELECT ?p1 ?p2 ?o1 ?o2 (DIVIDE(COUNT(?o1), ?denom) AS ?prob) 
+WHERE {
+  ?s ?p1 ?o1 .
+  ?s ?p2 ?o2 .
+  {
+    SELECT ?p1 ?p2 (COUNT(?o1) AS ?denom)
+    WHERE {
+      ?s ?p1 ?o1 .
+      ?s ?p2 ?o2 .
+      FILTER(STR(?p1) > STR(?p2)) .
+      FILTER(?p1 != ?p2) .
+      FILTER(?p1 != rdf:type) .
+      FILTER(?p2 != rdf:type) .
+      ?s a film:MoviePerson .
+    }
+    GROUP BY ?p1 ?p2
+  }
+}
+GROUP BY ?p1 ?p2 ?o1 ?o2 ?denom
+ORDER BY ?prob
