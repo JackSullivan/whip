@@ -1,19 +1,22 @@
 package so.modernized.whip
 
-import java.io.InputStream
+import java.io._
 
 import cc.factorie.app.chain.{LiteChainModelExample, SegmentEvaluation, ChainHelper}
+import cc.factorie.app.nlp.load.LoadOntonotes5
 import cc.factorie.app.nlp.{lexicon => lex, Document, Token}
 import cc.factorie.app.nlp.lexicon.{LexiconsProvider, StaticLexicons}
-import cc.factorie.app.nlp.ner.{SpanEncoding, NerTag, ChainNer}
+import cc.factorie.app.nlp.ner._
 import cc.factorie.la.{DenseTensor1, Tensor1}
 import cc.factorie.optimize.{Trainer, ParameterAveraging, AdaGrad}
-import cc.factorie.variable._
 import cc.factorie.util._
+import cc.factorie.variable._
+import edu.umass.cs.iesl.entity_embeddings.EntityEmbeddingOpts
 import edu.umass.cs.iesl.entity_embeddings.data_structures._
 import edu.umass.cs.iesl.entity_embeddings.data_structures.data_stores.EmbeddingCollection
 
 import scala.reflect.ClassTag
+import scala.util.Random
 
 /**
  * @author johnsullivan
@@ -63,6 +66,22 @@ abstract class EmbeddingChainNer[L <: NerTag](ld:CategoricalDomain[String] with 
       lp.provide[lex.wikipedia.Business] -> "WIKI-BUSINESS",
       lp.provide[lex.wikipedia.Film] -> "WIKI-FILM"
     ).map{case (mp, n) => n -> EntitySlug(EnrichRedirectsAndVocab.fixName(mp.coordinates), English).normalizedSlug }.toMap
+  }
+
+  override def serialize(stream: OutputStream): Unit = {
+    import cc.factorie.util.CubbieConversions._
+    val is = new DataOutputStream(new BufferedOutputStream(stream))
+    BinarySerializer.serialize(ChainNERFeaturesDomain.dimensionDomain, is)
+    BinarySerializer.serialize(liteModel, is)
+    is.close()
+  }
+
+  override def deserialize(stream:InputStream): Unit = {
+    import cc.factorie.util.CubbieConversions._
+    val is = new DataInputStream(new BufferedInputStream(stream))
+    BinarySerializer.deserialize(ChainNERFeaturesDomain.dimensionDomain, is)
+    BinarySerializer.deserialize(liteModel, is)
+    is.close()
   }
 
   class ChainNerWithEmbeddingFeatures(val token:Token, val feats:ChainNERFeatures) extends TensorVar {
@@ -168,5 +187,71 @@ abstract class EmbeddingChainNer[L <: NerTag](ld:CategoricalDomain[String] with 
     println("final results:")
     println(finalEval)
     finalEval.f1
+  }
+}
+
+class OntonotesEmbeddingChainNer(mp:ModelProvider[OntonotesEmbeddingChainNer], lp:LexiconsProvider, embColl: EmbeddingCollection)
+  extends EmbeddingChainNer[BilouOntonotesNerTag](BilouOntonotesNerDomain, (t, s) => new BilouOntonotesNerTag(t, s), l => l.token, mp.provide, lp, embColl) {
+  def loadDocs(fn:String):Seq[Document] = LoadOntonotes5 fromFilename fn
+}
+
+object OntonotesEmbeddingNerTrainer extends HyperparameterMain {
+  def evaluateParameters(args: Array[String]): Double = {
+    val opts = new ChainNerOpts with EntityEmbeddingOpts
+    implicit val random = new Random(0)
+    opts parse args
+    val embColl = EmbeddingCollection fromCMDOptions opts
+    val ner = new OntonotesEmbeddingChainNer(ModelProvider.empty, opts.lexicons.value, embColl)
+    if (opts.brownClusFile.wasInvoked) {
+      println(s"Reading brown cluster file: ${opts.brownClusFile.value}")
+      for (line <- scala.io.Source.fromFile(opts.brownClusFile.value).getLines()) {
+        val splitLine = line.split("\t")
+        ner.clusters(splitLine(1)) = splitLine(0)
+      }
+    }
+    assert(opts.train.wasInvoked && opts.test.wasInvoked, "No train/test data file provided.")
+    val trainPortionToTake = if(opts.trainPortion.wasInvoked) opts.trainPortion.value else 1.0
+    val testPortionToTake =  if(opts.testPortion.wasInvoked) opts.testPortion.value else 1.0
+    val trainDocsFull = ner.loadDocs(opts.train.value)
+    val testDocsFull = ner.loadDocs(opts.test.value)
+    val trainDocs = trainDocsFull.take((trainDocsFull.length*trainPortionToTake).floor.toInt)
+    val testDocs = testDocsFull.take((testDocsFull.length*testPortionToTake).floor.toInt)
+    println(s"using training set: ${opts.train.value} ; test set: ${opts.test.value}")
+    println(s"$trainPortionToTake of training data; $testPortionToTake of test data:")
+    println(s"using ${trainDocs.length} / ${trainDocsFull.length} train docs, ${trainDocs.map(_.tokenCount).sum} tokens")
+    println(s"using ${testDocs.length} / ${testDocsFull.length} test docs, ${testDocs.map(_.tokenCount).sum} tokens")
+
+    val ret = ner.train(trainDocs, testDocs, opts.rate.value, opts.delta.value)
+
+    if (opts.serialize.value) {
+      println("serializing model to " + opts.saveModel.value)
+      ner.serialize(new FileOutputStream(opts.saveModel.value))
+    }
+
+    if(opts.targetAccuracy.wasInvoked) cc.factorie.assertMinimalAccuracy(ret,opts.targetAccuracy.value.toDouble)
+    ret
+  }
+}
+
+object OntonotesEmbeddingNerOptimizer {
+  val opts = new ChainNerOpts with EntityEmbeddingOpts
+  def main(args:Array[String]): Unit = {
+    opts parse args
+    opts.serialize.setValue(false)
+    import cc.factorie.util.LogUniformDoubleSampler
+    val l1 = HyperParameter(opts.l1, new LogUniformDoubleSampler(1e-12, 1))
+    val l2 = HyperParameter(opts.l2, new LogUniformDoubleSampler(1e-12, 1))
+    val lr = HyperParameter(opts.learningRate, new LogUniformDoubleSampler(1e-3, 10))
+    val qs = new QSubExecutor(10, "cc.factorie.app.ner.OntonotesEmbeddingNerTrainer")
+    val optimizer = new HyperParameterSearcher(opts, Seq(l1, l2, lr), qs.execute, 100, 90, 60)
+    val result = optimizer.optimize()
+    println("Got results: " + result.mkString(" "))
+    println("Best l1: " + opts.l1.value + " best l2: " + opts.l2.value)
+    println("Running best configuration...")
+    opts.serialize.setValue(true)
+    import scala.concurrent.Await
+    import scala.concurrent.duration._
+    Await.result(qs.execute(opts.values.flatMap(_.unParse).toArray), 1.hours)
+    println("Done.")
   }
 }
