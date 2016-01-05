@@ -178,7 +178,7 @@ abstract class EmbeddingChainNer[L <: NerTag](ld:CategoricalDomain[String] with 
     }
 
     println(s"training with ${examples.length} examples")
-    Trainer.onlineTrain(liteModel.parameters, examples, optimizer=optimizer, evaluate=evaluate)
+    Trainer.onlineTrain(liteModel.parameters, examples, optimizer=optimizer, evaluate=evaluate, maxIterations = 5)
 
     val finalEval = new SegmentEvaluation[L with LabeledMutableCategoricalVar[String]](labelDomain.categories.filter(_.length > 2).map(_.substring(2)), "(B|U)-", "(I|L)-")
     val buf = new StringBuffer
@@ -249,14 +249,14 @@ object OntonotesEmbeddingNerOptimizer {
     opts parse args
     opts.serialize.setValue(false)
     import cc.factorie.util.LogUniformDoubleSampler
-    val l1 = HyperParameter(opts.l1, new LogUniformDoubleSampler(1e-12, 1))
-    val l2 = HyperParameter(opts.l2, new LogUniformDoubleSampler(1e-12, 1))
-    val lr = HyperParameter(opts.learningRate, new LogUniformDoubleSampler(1e-3, 10))
+    val rate = HyperParameter(opts.rate, new LogUniformDoubleSampler(1e-3, 1))
+    val delta = HyperParameter(opts.delta, new LogUniformDoubleSampler(0.01, 0.1))
+
     val qs = new QSubExecutor(10, "cc.factorie.app.ner.OntonotesEmbeddingNerTrainer")
-    val optimizer = new HyperParameterSearcher(opts, Seq(l1, l2, lr), qs.execute, 100, 90, 60)
+    val optimizer = new HyperParameterSearcher(opts, Seq(rate, delta), qs.execute, 100, 90, 60)
     val result = optimizer.optimize()
     println("Got results: " + result.mkString(" "))
-    println("Best l1: " + opts.l1.value + " best l2: " + opts.l2.value)
+    println("Best rate: " + opts.rate.value + " best delta: " + opts.delta.value)
     println("Running best configuration...")
     opts.serialize.setValue(true)
     import scala.concurrent.Await
