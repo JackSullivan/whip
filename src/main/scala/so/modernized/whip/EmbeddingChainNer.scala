@@ -196,6 +196,7 @@ class OntonotesEmbeddingChainNer(mp:ModelProvider[OntonotesEmbeddingChainNer], l
 }
 
 object OntonotesEmbeddingNerTrainer extends HyperparameterMain {
+
   def evaluateParameters(args: Array[String]): Double = {
     val opts = new ChainNerOpts with EntityEmbeddingOpts
     implicit val random = new Random(0)
@@ -209,11 +210,20 @@ object OntonotesEmbeddingNerTrainer extends HyperparameterMain {
         ner.clusters(splitLine(1)) = splitLine(0)
       }
     }
-    assert(opts.train.wasInvoked && opts.test.wasInvoked, "No train/test data file provided.")
+
+
+
     val trainPortionToTake = if(opts.trainPortion.wasInvoked) opts.trainPortion.value else 1.0
     val testPortionToTake =  if(opts.testPortion.wasInvoked) opts.testPortion.value else 1.0
-    val trainDocsFull = ner.loadDocs(opts.train.value)
-    val testDocsFull = ner.loadDocs(opts.test.value)
+    val (trainDocsFull, testDocsFull) = if(opts.train.wasInvoked && opts.test.wasInvoked) {
+      opts.train.value.flatMap(f => ner.loadDocs(f.getAbsolutePath)).toSeq ->
+        opts.test.value.flatMap(f => ner.loadDocs(f.getAbsolutePath)).toSeq
+    } else if(opts.trainDir.wasInvoked && opts.testDir.wasInvoked) {
+      opts.trainDir.value.listFiles().flatMap(f => ner.loadDocs(f.getAbsolutePath)).toSeq ->
+        opts.testDir.value.listFiles().flatMap(f => ner.loadDocs(f.getAbsolutePath)).toSeq
+    } else {
+      throw new IllegalArgumentException("You must provide values for either --train and --test or --train-dir and --test-dir")
+    }
     val trainDocs = trainDocsFull.take((trainDocsFull.length*trainPortionToTake).floor.toInt)
     val testDocs = testDocsFull.take((testDocsFull.length*testPortionToTake).floor.toInt)
     println(s"using training set: ${opts.train.value} ; test set: ${opts.test.value}")
